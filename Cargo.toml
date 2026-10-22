@@ -1,0 +1,25 @@
+[package]
+name = "floodlight"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+# Where settings.toml lives on each OS.
+directories = "6"
+# Reverse DNS (the OS's getnameinfo) for the name column.
+dns-lookup = "4"
+# This machine's addresses and netmasks, for the default subnet.
+if-addrs = "0.15"
+# Reads 192.168.1.0/24 and walks its addresses.
+ipnet = "2"
+ratatui = "0.30"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros"] }
+toml = "1"
+
+[profile.release]
+strip = true
