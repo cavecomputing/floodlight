@@ -8,9 +8,9 @@ use crate::os::settings::{self, Settings};
 use crate::scan::hosts::{Column, Hit, Host, Hosts, Query, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep::{self, Event};
-use crate::ui::INSET;
 use crate::ui::status_bar::{self, Notice};
 use crate::ui::theme::Roles;
+use crate::ui::{INSET, inset};
 use ratatui::crossterm::event::{
     self as input, Event as Input, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
@@ -382,14 +382,6 @@ impl<'a> App<'a> {
                 }),
             );
         }
-    }
-}
-
-fn inset(area: Rect) -> Rect {
-    Rect {
-        x: area.x + INSET,
-        width: area.width.saturating_sub(INSET),
-        ..area
     }
 }
 

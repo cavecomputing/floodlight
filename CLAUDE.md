@@ -2,10 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The app is **Floodlight**, a terminal tool written in Rust. It sweeps a subnet and shows every
-address that answered with its MAC, maker and name, under a prompt that filters the rows as you
-type, so a camera or switch you just plugged in is found by the MAC on its label (or the other way
-round). Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+The app is **Floodlight**, a terminal tool written in Rust. Each feature is a flag. `--sweep`
+sweeps a subnet and shows every address that answered with its MAC, maker and name, under a prompt
+that filters the rows as you type, so a camera or switch you just plugged in is found by the MAC
+on its label (or the other way round). `--wireless` lists the WiFi networks in earshot and how
+their channels overlap. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -120,6 +121,8 @@ cargo run -- --sweep                   # sweep the subnet this machine is on
 cargo run -- --sweep 192.168.1.0/24    # sweep that subnet (everything after -- goes to the app)
 cargo run -- --sweep --plain           # print the table and exit (for pipes, scripts, a quick look)
 cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac, maker or name fragment
+cargo run -- --wireless                # the WiFi networks heard here and how their channels overlap
+cargo run -- --wireless --plain        # the same as a table on stdout
 
 cargo test                        # run every test
 cargo test mac                    # run only tests whose name contains "mac"
@@ -133,6 +136,7 @@ What each OS needs before the first build: Rust (rustup) and a C compiler (`base
 `build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools with
 the "Desktop development with C++" workload on Windows). At run time: `ping`, and `ip` (iproute2)
 or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying.
+For `--wireless`: `nmcli` or `iw` on Linux, `system_profiler` on macOS, `netsh` on Windows.
 
 Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/bin`.
 
@@ -141,10 +145,11 @@ Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/
 - Every change: `cargo build`, `cargo test` and `cargo clippy --all-targets` with no warnings,
   and `cargo fmt --check` clean.
 - Code that only one OS needs goes behind `#[cfg(...)]` or `cfg!(...)`, with a comment saying what
-  the other OSes do. The ARP parser has a test per OS format so the other two can't break quietly.
-- Logic (matching, MAC normalising, the ARP and ping parsers, the mDNS packet, settings): unit
-  tests next to the code, in a `#[cfg(test)] mod tests` block at the bottom of the file. Keep that
-  logic out of `ui/` so it can be tested without a terminal.
+  the other OSes do. The ARP and WiFi parsers have a test per OS format so the others can't
+  break quietly.
+- Logic (matching, MAC normalising, the ARP and ping parsers, the mDNS packet, settings, the WiFi
+  parsers and channel maths): unit tests next to the code, in a `#[cfg(test)] mod tests` block at
+  the bottom of the file. Keep that logic out of `ui/` so it can be tested without a terminal.
 - Anything visual (layout, colours, the status bar): run the app in a terminal and look, in both
   themes (Ctrl+T). `--plain` checks the sweep itself without a screen. Never claim a change was
   checked on screen when it wasn't.
@@ -156,7 +161,12 @@ Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/
 Each feature is a flag, and the command alone prints the help listing them.
 
 `--sweep`: `floodlight --sweep [subnet]` opens the screen, starts the sweep in the
-background, and fills the table as answers come in. Ctrl+R sweeps again. There is no daemon, no
+background, and fills the table as answers come in. Ctrl+R sweeps again.
+
+`--wireless`: `floodlight --wireless` opens a screen of every network heard, asks the OS's own
+tool for the list once in the background, and fills in when it answers; Ctrl+R asks again.
+
+There is no daemon, no
 state between runs beyond `settings.toml`.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -165,9 +175,9 @@ and only ever talks to the screen through `Event`s.
 
 ### Folder layout
 
-The code is split by *what it knows about*. The rule that keeps it organised: **`scan/` and `os/`
-never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and key
-wiring.
+The code is split by *what it knows about*. The rule that keeps it organised: **`scan/`, `wifi/`
+and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
+key wiring.
 
 ```
 Cargo.toml, Cargo.lock   dependencies, each with its one-line reason (see "Rust in plain terms")
@@ -185,14 +195,19 @@ src/
     vendor.rs            the maker from a MAC's first three bytes; randomized addresses; tidied names
     hosts.rs             a Host row, the Hosts table built from Events, MAC normalising, and how a
                          Query matches a row (address, MAC with or without separators, maker, name)
+  wifi/                  the WiFi survey, no UI
+    survey.rs            the networks heard, from nmcli / iw / system_profiler / netsh, a parser each
+    channels.rs          channels as frequencies: bands, the slice a network fills, who shares or
+                         overlaps it, the quietest channel, the strip that draws a band
   os/                    the OS outside the network
     settings.rs          settings.toml: load, defaults, atomic save
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   ui/                    everything on screen
     theme.rs             Gruvbox palette roles as ratatui styles
-    app.rs               the screen: state, key handling, the prompt and the table
+    app.rs               the sweep's screen: state, key handling, the prompt and the table
+    wireless.rs          the wireless screen: the networks, their crowds and strips
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
-    plain.rs             the table printed to stdout for --plain and --find
+    plain.rs             the tables printed to stdout for --plain and --find
 ```
 
 One file per concern, named for that concern. When a file passes a few hundred lines, or starts
