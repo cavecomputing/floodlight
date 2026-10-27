@@ -3,7 +3,7 @@
 //! each survey asks for a scan and reads what the one before found: nothing waits. Only compiled
 //! on Windows; the other OSes list networks through their own tools in survey.rs.
 
-use super::survey::{Network, width_from_ies};
+use super::survey::{Network, bond_from_ies};
 use std::ptr::{null, null_mut};
 use std::slice;
 use windows_sys::Win32::NetworkManagement::WiFi::{
@@ -65,8 +65,9 @@ pub fn networks() -> Result<Vec<Network>, String> {
     Ok(networks)
 }
 
-/// One access point as wlanapi heard it. Its width comes from the HT and VHT elements of its
-/// beacon, which sit `ulIeOffset` bytes from the start of the entry.
+/// One access point as wlanapi heard it. Its width and the centre of its bonded channel come
+/// from the operation elements of its beacon, which sit `ulIeOffset` bytes from the start of the
+/// entry.
 ///
 /// SAFETY: `entry` must be inside a list wlanapi returned, which keeps its elements after it.
 unsafe fn network(entry: &WLAN_BSS_ENTRY, joined: Option<[u8; 6]>) -> Network {
@@ -78,11 +79,14 @@ unsafe fn network(entry: &WLAN_BSS_ENTRY, joined: Option<[u8; 6]>) -> Network {
             .add(entry.ulIeOffset as usize);
         slice::from_raw_parts(start, entry.ulIeSize as usize)
     };
+    let freq_mhz = entry.ulChCenterFrequency / 1000;
+    let (width_mhz, centre_mhz) = bond_from_ies(ies, freq_mhz);
     Network {
         ssid: (!name.trim_matches('\0').is_empty()).then(|| name.into_owned()),
         bssid: Some(mac(entry.dot11Bssid)),
-        freq_mhz: entry.ulChCenterFrequency / 1000,
-        width_mhz: width_from_ies(ies),
+        freq_mhz,
+        width_mhz: Some(width_mhz),
+        centre_mhz: Some(centre_mhz),
         signal_dbm: entry.lRssi,
         connected: joined == Some(entry.dot11Bssid),
     }

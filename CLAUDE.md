@@ -242,7 +242,7 @@ src/
                          Query matches a row (address, MAC with or without separators, maker, name)
   wifi/                  the WiFi survey, no UI
     survey.rs            the networks heard, from nmcli / iw / the macOS helper, a parser each, and
-                         the channel width read from a beacon's elements
+                         the width and bonded centre read from a beacon's operation elements
     windows.rs           Windows' wifi service (wlanapi) asked directly: scan, the list heard, the joined one
     helper.swift         the macOS helper app: names need Location, which only an app can be given
     channels.rs          channels as frequencies: bands, the slice a network fills, who shares or

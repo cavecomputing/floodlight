@@ -85,12 +85,21 @@ pub fn channel(freq_mhz: u32) -> u32 {
 
 /// The slice of spectrum a network fills, low and high edge in MHz. A width the OS didn't report
 /// counts as 20 MHz. A 2.4 GHz channel is 22 MHz wide (the classic mask that makes only 1, 6
-/// and 11 clear of each other), and its 40 MHz mode reaches up from the low channels and down
-/// from the high ones. Wider 5 and 6 GHz channels sit in fixed blocks: 36-48 is one 80 MHz block,
-/// so a network on 44 at 80 MHz fills 36 to 48.
-pub fn span(freq_mhz: u32, width_mhz: Option<u32>) -> (u32, u32) {
+/// and 11 clear of each other). Where the beacon said where the bonded channel is centred
+/// (`centre_mhz`), the slice sits around that. Otherwise it is guessed: at 2.4 GHz the 40 MHz
+/// mode reaches up from the low channels and down from the high ones, and wider 5 and 6 GHz
+/// channels sit in fixed blocks (36-48 is one 80 MHz block, so a network on 44 at 80 MHz fills
+/// 36 to 48), 320 MHz ones in the blocks starting at channel 1 (there is a second layout 160 MHz
+/// up, which only the beacon can tell).
+pub fn span(freq_mhz: u32, width_mhz: Option<u32>, centre_mhz: Option<u32>) -> (u32, u32) {
     let width = width_mhz.unwrap_or(20).max(20);
-    match Band::of(freq_mhz) {
+    let band = Band::of(freq_mhz);
+    // The extra 2 MHz of the 22 MHz mask.
+    let skirt = if band == Band::Ghz2 { 1 } else { 0 };
+    if let Some(centre) = centre_mhz {
+        return (centre - width / 2 - skirt, centre + width / 2 + skirt);
+    }
+    match band {
         Band::Ghz2 if width >= 40 && channel(freq_mhz) <= 7 => (freq_mhz - 11, freq_mhz + 31),
         Band::Ghz2 if width >= 40 => (freq_mhz - 31, freq_mhz + 11),
         Band::Ghz2 => (freq_mhz - 11, freq_mhz + 11),
@@ -179,8 +188,8 @@ pub fn quietest(networks: &[Network], band: Band) -> u32 {
 
 /// The band drawn as a row of cells, `─` where the network fills it and `●` on its primary
 /// channel, so the rows of one band stacked together show who overlaps whom.
-pub fn strip(freq_mhz: u32, width_mhz: Option<u32>) -> String {
-    let (low, high) = span(freq_mhz, width_mhz);
+pub fn strip(freq_mhz: u32, width_mhz: Option<u32>, centre_mhz: Option<u32>) -> String {
+    let (low, high) = span(freq_mhz, width_mhz, centre_mhz);
     let cells = Band::of(freq_mhz).cells();
     let primary = cells
         .iter()
@@ -208,6 +217,7 @@ mod tests {
             bssid: None,
             freq_mhz: frequency(band, channel),
             width_mhz,
+            centre_mhz: None,
             signal_dbm,
             connected: false,
         }
@@ -230,22 +240,36 @@ mod tests {
 
     #[test]
     fn only_one_six_and_eleven_stay_apart() {
-        let one = span(2412, None);
-        let five = span(2432, None);
-        let six = span(2437, None);
-        let eleven = span(2462, None);
+        let one = span(2412, None, None);
+        let five = span(2432, None, None);
+        let six = span(2437, None, None);
+        let eleven = span(2462, None, None);
         assert!(one.1 > five.0, "1 and 5 overlap");
         assert!(one.1 <= six.0 && six.1 <= eleven.0);
     }
 
     #[test]
     fn wide_channels_fill_their_block() {
-        assert_eq!(span(5220, Some(80)), (5170, 5250)); // 44 at 80 MHz: 36 to 48
-        assert_eq!(span(5745, Some(80)), (5735, 5815)); // 149 at 80 MHz: 149 to 161
-        assert_eq!(span(5320, Some(160)), (5170, 5330)); // 64 at 160 MHz: 36 to 64
-        assert_eq!(span(5200, Some(40)), (5170, 5210)); // 40 at 40 MHz: 36 and 40
-        assert_eq!(span(2412, Some(40)), (2401, 2443)); // 1 reaches up
-        assert_eq!(span(2462, Some(40)), (2431, 2473)); // 11 reaches down
+        assert_eq!(span(5220, Some(80), None), (5170, 5250)); // 44 at 80 MHz: 36 to 48
+        assert_eq!(span(5745, Some(80), None), (5735, 5815)); // 149 at 80 MHz: 149 to 161
+        assert_eq!(span(5320, Some(160), None), (5170, 5330)); // 64 at 160 MHz: 36 to 64
+        assert_eq!(span(5200, Some(40), None), (5170, 5210)); // 40 at 40 MHz: 36 and 40
+        assert_eq!(span(2412, Some(40), None), (2401, 2443)); // 1 reaches up
+        assert_eq!(span(2462, Some(40), None), (2431, 2473)); // 11 reaches down
+        assert_eq!(span(5955, Some(320), None), (5945, 6265)); // 6 GHz 1 at 320 MHz: 1 to 61
+    }
+
+    #[test]
+    fn a_centre_from_the_beacon_beats_the_guess() {
+        // 7 at 40 MHz paired with 3 below, where the guess would reach up to 11.
+        assert_eq!(span(2442, Some(40), Some(2432)), (2411, 2453));
+        assert_eq!(span(5180, Some(80), Some(5210)), (5170, 5250));
+        // 6 GHz 65 at 320 MHz in the second layout (centre 95), not the block from channel 1.
+        assert_eq!(span(6275, Some(320), Some(6425)), (6265, 6585));
+        assert_eq!(
+            strip(6275, Some(320), Some(6425)),
+            "········●───────··············"
+        );
     }
 
     #[test]
@@ -283,8 +307,8 @@ mod tests {
 
     #[test]
     fn strips_show_the_slice_and_the_primary() {
-        assert_eq!(strip(2437, None), "···──●──·····");
-        assert_eq!(strip(2412, None), "●──··········");
-        assert_eq!(strip(5220, Some(80)), "──●─························");
+        assert_eq!(strip(2437, None, None), "···──●──·····");
+        assert_eq!(strip(2412, None, None), "●──··········");
+        assert_eq!(strip(5220, Some(80), None), "──●─························");
     }
 }

@@ -207,7 +207,7 @@ fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
 
     // The band's edges: from its first channel to its last, or wider if a network reaches out.
     let labels = band.candidates();
-    let edges = |channel: u32| channels::span(channels::frequency(band, channel), None);
+    let edges = |channel: u32| channels::span(channels::frequency(band, channel), None, None);
     let spans = shown.iter().map(|network| network.span());
     let low = spans
         .clone()
@@ -297,6 +297,7 @@ mod tests {
             bssid: Some("02:00:00:00:00:01".to_string()),
             freq_mhz,
             width_mhz: Some(20),
+            centre_mhz: None,
             signal_dbm,
             connected,
         }

@@ -84,7 +84,7 @@ pub fn wireless(runtime: &Runtime) -> anyhow::Result<()> {
     );
     for (network, crowd) in networks.iter().zip(channels::crowds(&networks)) {
         let [ssid, channel, band, width, signal, neighbours, bssid] = network_words(network, crowd);
-        let air = channels::strip(network.freq_mhz, network.width_mhz);
+        let air = channels::strip(network.freq_mhz, network.width_mhz, network.centre_mhz);
         println!(
             "{ssid:<24}  {channel:>3}  {band:<7}  {width:<7}  {signal:<7}  {neighbours:<18}  {air:<30}  {bssid}"
         );

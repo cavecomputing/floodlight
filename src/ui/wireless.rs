@@ -397,7 +397,7 @@ fn row(
         Cell::from(Line::from(trend)),
         Cell::from(neighbours),
         Cell::from(Span::styled(
-            channels::strip(network.freq_mhz, network.width_mhz),
+            channels::strip(network.freq_mhz, network.width_mhz, network.centre_mhz),
             roles.muted(),
         )),
         Cell::from(Span::styled(bssid, roles.comment())),

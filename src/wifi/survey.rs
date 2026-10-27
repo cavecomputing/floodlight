@@ -34,6 +34,10 @@ pub struct Network {
     pub freq_mhz: u32,
     /// None where the OS doesn't say (nmcli), which then counts as 20 MHz.
     pub width_mhz: Option<u32>,
+    /// The centre of the whole bonded channel, where the beacon said (iw, Windows): a 40 MHz
+    /// network on 2.4 GHz channel 6 is centred 10 MHz above or below it. None where only the
+    /// width is known (macOS) or nothing is (nmcli); the slice is then guessed from the width.
+    pub centre_mhz: Option<u32>,
     /// nmcli gives a percentage, turned into dBm the way Windows maps them.
     pub signal_dbm: i32,
     /// The one this machine is joined to.
@@ -42,7 +46,7 @@ pub struct Network {
 
 impl Network {
     pub fn span(&self) -> (u32, u32) {
-        channels::span(self.freq_mhz, self.width_mhz)
+        channels::span(self.freq_mhz, self.width_mhz, self.centre_mhz)
     }
 }
 
@@ -236,6 +240,7 @@ pub fn parse_helper(text: &str) -> Result<Vec<Network>, String> {
             bssid: normalize_mac(bssid),
             freq_mhz: on_channel(channel, band),
             width_mhz: width.parse().ok().filter(|mhz| *mhz > 0),
+            centre_mhz: None,
             signal_dbm: signal,
             connected: *joined == "joined",
         });
@@ -262,26 +267,61 @@ pub fn ssid(raw: &str) -> Option<String> {
     (!raw.is_empty() && !raw.starts_with("\\x00")).then_some(raw)
 }
 
-/// A beacon's channel width from its information elements (id, length, body): 40 MHz when the
-/// HT operation element (61) names a secondary channel, 80 or 160 from the VHT operation element
-/// (192). None when neither says. Only windows.rs reads beacons; it's tested here on every OS.
+/// A beacon's channel width and the centre of its bonded channel, from its information
+/// elements (id, length, body), given the primary channel's frequency: 20 MHz on the primary
+/// unless the HT operation element (61) names a secondary channel (40 MHz, above or below), the
+/// VHT operation element (192) says 80 or 160, the HE operation element (255, extension 36) says
+/// so for 6 GHz, or the EHT operation element (255, extension 106) says up to 320. Each names the
+/// centre as a channel number; a 160 or 320 MHz one in its second segment field. Only windows.rs
+/// reads beacons; it's tested here on every OS.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn width_from_ies(mut ies: &[u8]) -> Option<u32> {
-    let mut width = None;
+pub fn bond_from_ies(mut ies: &[u8], freq_mhz: u32) -> (u32, u32) {
+    let band = Band::of(freq_mhz);
+    let mut bond = (20, freq_mhz);
     while let [id, length, rest @ ..] = ies {
         let Some(body) = rest.get(..*length as usize) else {
             break;
         };
         match (id, body) {
-            (61, [_, info, ..]) if matches!(info & 0b11, 1 | 3) => width = width.max(Some(40)),
-            // Width 1 is 80 MHz, or 160 when a second centre segment is set; 2 and 3 are 160.
-            (192, [1, _, 0, ..]) => width = width.max(Some(80)),
-            (192, [1..=3, ..]) => width = width.max(Some(160)),
+            (61, [_, info, ..]) => match info & 0b11 {
+                1 => bond = (40, freq_mhz + 10),
+                3 => bond = (40, freq_mhz - 10),
+                _ => {}
+            },
+            // Width 1 is 80 MHz, or 160 when the second segment is the 160's centre (80+80, two
+            // separate 80s, is drawn as the first); 2 is 160 around the first segment; 3 is 80+80.
+            (192, [1, seg0, seg1, ..]) if *seg1 != 0 && seg1.abs_diff(*seg0) == 8 => {
+                bond = (160, channels::frequency(band, *seg1 as u32));
+            }
+            (192, [1 | 3, seg0, ..]) => bond = (80, channels::frequency(band, *seg0 as u32)),
+            (192, [2, seg0, ..]) => bond = (160, channels::frequency(band, *seg0 as u32)),
+            // Parameters (3), colour, MCS set (2), optional parts, then the 6 GHz information
+            // (primary, control, two segments, rate) when the parameters' bit 17 says so.
+            (255, [36, params @ .., _, control, seg0, seg1, _])
+                if params.len() >= 6 && params[2] & 0b10 != 0 =>
+            {
+                bond = bonded(control & 0b11, *seg0, *seg1, band);
+            }
+            (255, [106, params, _, _, _, _, control, seg0, seg1, ..]) if params & 1 != 0 => {
+                bond = bonded(control & 0b111, *seg0, *seg1, band);
+            }
             _ => {}
         }
         ies = &rest[*length as usize..];
     }
-    width
+    bond
+}
+
+/// A width code (0 for 20 MHz, 1 for 40, up to 4 for 320) and the two centre segments the HE and
+/// EHT operation elements carry, as a width and its centre.
+fn bonded(code: u8, seg0: u8, seg1: u8, band: Band) -> (u32, u32) {
+    let width = 20 << code.min(4);
+    let segment = if width >= 160 && seg1 != 0 {
+        seg1
+    } else {
+        seg0
+    };
+    (width, channels::frequency(band, segment as u32))
 }
 
 fn percent_to_dbm(percent: i32) -> i32 {
@@ -332,6 +372,7 @@ pub fn parse_nmcli(text: &str) -> Vec<Network> {
             bssid: normalize_mac(bssid),
             freq_mhz: freq,
             width_mhz: None,
+            centre_mhz: None,
             signal_dbm: percent_to_dbm(signal),
             connected: in_use.trim() == "*",
         });
@@ -339,8 +380,9 @@ pub fn parse_nmcli(text: &str) -> Vec<Network> {
     networks
 }
 
-/// `iw dev wlan0 scan dump`: a `BSS` line per access point, then indented details. The width is
-/// 40 MHz when HT names a secondary channel, more when VHT says so.
+/// `iw dev wlan0 scan dump`: a `BSS` line per access point, then indented details. The width and
+/// the bonded channel's centre come from the HT, VHT, HE (6 GHz) and EHT operation elements iw
+/// prints, the way `bond_from_ies` reads them from the bytes.
 pub fn parse_iw(text: &str) -> Vec<Network> {
     let mut networks: Vec<Network> = Vec::new();
     for line in text.lines() {
@@ -349,7 +391,8 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
                 ssid: None,
                 bssid: normalize_mac(rest.split('(').next().unwrap_or(rest)),
                 freq_mhz: 0,
-                width_mhz: None,
+                width_mhz: Some(20),
+                centre_mhz: None,
                 signal_dbm: -100,
                 connected: rest.contains("associated"),
             });
@@ -360,21 +403,61 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
         };
         let line = line.trim();
         let number = |value: &str| -> Option<f32> { value.split_whitespace().next()?.parse().ok() };
+        let band = Band::of(network.freq_mhz);
+        // A centre as a channel number; 0 means none.
+        let segment = |value: &str| {
+            number(value)
+                .filter(|index| *index > 0.0)
+                .map(|index| channels::frequency(band, index as u32))
+        };
         if let Some(value) = line.strip_prefix("freq:") {
             network.freq_mhz = number(value).unwrap_or(0.0) as u32;
+            network.centre_mhz = Some(network.freq_mhz);
         } else if let Some(value) = line.strip_prefix("signal:") {
             network.signal_dbm = number(value).unwrap_or(-100.0).round() as i32;
         } else if let Some(value) = line.strip_prefix("SSID:") {
             network.ssid = ssid(value);
         } else if let Some(value) = line.strip_prefix("* secondary channel offset:") {
-            if value.contains("above") || value.contains("below") {
+            if value.contains("above") {
                 network.width_mhz = Some(40);
+                network.centre_mhz = Some(network.freq_mhz + 10);
+            } else if value.contains("below") {
+                network.width_mhz = Some(40);
+                network.centre_mhz = Some(network.freq_mhz - 10);
             }
         } else if let Some(value) = line.strip_prefix("* channel width:") {
+            // VHT: 1 is 80 (or 160, which its second segment then says), 2 is 160, 3 is 80+80.
             match number(value) {
-                Some(1.0) => network.width_mhz = Some(80),
-                Some(2.0) | Some(3.0) => network.width_mhz = Some(160),
+                Some(1.0) | Some(3.0) => network.width_mhz = Some(80),
+                Some(2.0) => network.width_mhz = Some(160),
                 _ => {}
+            }
+        } else if let Some(value) = line.strip_prefix("Channel Width:") {
+            // HE (6 GHz) and EHT: `80 MHz`, `80+80 or 160 MHz`, `320 MHz`.
+            let last = value
+                .split_whitespace()
+                .rev()
+                .nth(1)
+                .and_then(|mhz| mhz.parse().ok());
+            if let Some(mhz) = last {
+                network.width_mhz = Some(mhz);
+            }
+        } else if let Some(value) = line
+            .strip_prefix("* center freq segment 1:")
+            .or_else(|| line.strip_prefix("Center Frequency Segment 0:"))
+        {
+            network.centre_mhz = segment(value).or(network.centre_mhz);
+        } else if let Some(value) = line
+            .strip_prefix("* center freq segment 2:")
+            .or_else(|| line.strip_prefix("Center Frequency Segment 1:"))
+        {
+            // The second segment is the centre of a 160 or 320 MHz channel. VHT's `1 (80 MHz)`
+            // with a second segment 8 channels off is really 160 MHz.
+            if let (Some(mhz), Some(centre)) = (segment(value), network.centre_mhz)
+                && (network.width_mhz >= Some(160) || mhz.abs_diff(centre) == 40)
+            {
+                network.width_mhz = network.width_mhz.max(Some(160));
+                network.centre_mhz = Some(mhz);
             }
         }
     }
@@ -387,27 +470,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_the_width_from_beacon_elements() {
+    fn reads_the_bonded_channel_from_beacon_elements() {
+        let ht_40_below = [61, 3, 11, 0b0111, 0];
         let ht_40 = [61, 3, 36, 0b0101, 0];
-        let vht_80 = [192, 3, 1, 42, 0];
-        let vht_160 = [192, 3, 1, 42, 50];
+        let ht_20 = [61, 3, 36, 0b0100, 0];
+        let vht_80 = [192, 5, 1, 42, 0, 0, 0];
+        let vht_160 = [192, 5, 1, 42, 50, 0, 0];
+        let vht_80_80 = [192, 5, 1, 42, 155, 0, 0];
+        let vht_160_old = [192, 5, 2, 50, 0, 0, 0];
+        // Extension 36, parameters with bit 17 set, colour, MCS set, then the 6 GHz information:
+        // primary 37, width code 3 (160), segments 39 (the 80) and 47 (the 160).
+        let he_6ghz_160 = [255, 12, 36, 0, 0, 0b10, 0, 0xff, 0xff, 37, 3, 39, 47, 6];
+        let he_5ghz = [255, 7, 36, 0, 0, 0, 0, 0xff, 0xff];
+        // Extension 106, parameters with the information present, MCS set, then width code 4
+        // (320) with segments 47 (the 160) and 63 (the 320).
+        let eht_320 = [255, 9, 106, 1, 0x11, 0, 0, 0, 4, 47, 63];
         let other = [0, 4, b'H', b'o', b'm', b'e'];
+        assert_eq!(bond_from_ies(&other, 2437), (20, 2437));
+        assert_eq!(bond_from_ies(&ht_20, 5180), (20, 5180));
         assert_eq!(
-            width_from_ies(&[other.as_slice(), &ht_40].concat()),
-            Some(40)
+            bond_from_ies(&[other.as_slice(), &ht_40].concat(), 5180),
+            (40, 5190)
+        );
+        assert_eq!(bond_from_ies(&ht_40_below, 2462), (40, 2452));
+        assert_eq!(
+            bond_from_ies(&[ht_40.as_slice(), &vht_80].concat(), 5180),
+            (80, 5210)
         );
         assert_eq!(
-            width_from_ies(&[ht_40.as_slice(), &vht_80].concat()),
-            Some(80)
+            bond_from_ies(&[ht_40.as_slice(), &vht_160].concat(), 5180),
+            (160, 5250)
+        );
+        assert_eq!(bond_from_ies(&vht_80_80, 5180), (80, 5210));
+        assert_eq!(bond_from_ies(&vht_160_old, 5180), (160, 5250));
+        assert_eq!(bond_from_ies(&he_6ghz_160, 6135), (160, 6185));
+        assert_eq!(
+            bond_from_ies(&[he_5ghz.as_slice(), &vht_80].concat(), 5180),
+            (80, 5210)
         );
         assert_eq!(
-            width_from_ies(&[ht_40.as_slice(), &vht_160].concat()),
-            Some(160)
+            bond_from_ies(&[he_6ghz_160.as_slice(), &eht_320].concat(), 6135),
+            (320, 6265)
         );
-        assert_eq!(width_from_ies(&other), None);
         assert_eq!(
-            width_from_ies(&[61, 9, 1]),
-            None,
+            bond_from_ies(&[61, 9, 1], 5180),
+            (20, 5180),
             "a length running past the end"
         );
     }
@@ -449,16 +556,53 @@ BSS aa:bb:cc:00:00:02(on wlan0)
 \tSSID: \\x00\\x00\\x00
 \tHT operation:
 \t\t * secondary channel offset: no secondary
+BSS aa:bb:cc:00:00:03(on wlan0)
+\tfreq: 2462
+\tSSID: Attic
+\tHT operation:
+\t\t * primary channel: 11
+\t\t * secondary channel offset: below
+BSS aa:bb:cc:00:00:04(on wlan0)
+\tfreq: 6135.0
+\tSSID: Attic
+\tHE Operation:
+\t\tHE Operation Parameters: (0x020000)
+\t\t\t6 GHz Operation Information Present
+\t\t6 GHz Operation Information: 0x2503272f06
+\t\t\tPrimary Channel: 37
+\t\t\tChannel Width: 80+80 or 160 MHz
+\t\t\tCenter Frequency Segment 0: 39
+\t\t\tCenter Frequency Segment 1: 47
+\tEHT Operation:
+\t\tEHT Operation Parameters: (0x01)
+\t\tEHT Operation Info: 0x042f3f
+\t\t\tChannel Width: 320 MHz
+\t\t\tCenter Frequency Segment 0: 47
+\t\t\tCenter Frequency Segment 1: 63
+BSS aa:bb:cc:00:00:05(on wlan0)
+\tfreq: 5500
+\tVHT operation:
+\t\t * channel width: 1 (80 MHz)
+\t\t * center freq segment 1: 106
+\t\t * center freq segment 2: 114
 ";
         let networks = parse_iw(text);
-        assert_eq!(networks.len(), 2);
+        assert_eq!(networks.len(), 5);
         assert_eq!(networks[0].freq_mhz, 5180);
         assert_eq!(networks[0].width_mhz, Some(80));
+        assert_eq!(networks[0].centre_mhz, Some(5210));
         assert_eq!(networks[0].signal_dbm, -48);
         assert!(networks[0].connected);
         assert_eq!(networks[1].ssid, None);
-        assert_eq!(networks[1].width_mhz, None);
+        assert_eq!(networks[1].width_mhz, Some(20));
+        assert_eq!(networks[1].centre_mhz, Some(2412));
         assert_eq!(networks[1].bssid.as_deref(), Some("aa:bb:cc:00:00:02"));
+        assert_eq!(networks[2].width_mhz, Some(40));
+        assert_eq!(networks[2].centre_mhz, Some(2452));
+        assert_eq!(networks[3].width_mhz, Some(320));
+        assert_eq!(networks[3].centre_mhz, Some(6265));
+        assert_eq!(networks[4].width_mhz, Some(160));
+        assert_eq!(networks[4].centre_mhz, Some(5570));
     }
 
     #[test]

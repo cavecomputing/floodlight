@@ -135,6 +135,7 @@ mod tests {
             bssid: Some(bssid.to_string()),
             freq_mhz: 2437,
             width_mhz: None,
+            centre_mhz: None,
             signal_dbm,
             connected: false,
         }
