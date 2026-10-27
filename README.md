@@ -97,11 +97,11 @@ for a new spot. How fresh each scan is depends on the OS: iwd and macOS scan eve
 and Windows may refuse a new scan within a few seconds of the last and repeat it.
 
 Read from the OS's own tool, no root: `nmcli` (NetworkManager) or `iw` on Linux (with iwd, as on
-Omarchy, install `iw`; iwd is asked for a fresh scan first), `netsh` on Windows. macOS hides
+Omarchy, install `iw`; iwd is asked for a fresh scan first), Windows' own wifi service on Windows. macOS hides
 network names from terminal tools, so there the list comes from a small helper app built in;
 the first run asks to allow it Location (it never reads where you are, it's just the permission
 macOS ties names to). If you said no, allow `Floodlight WiFi` under System Settings › Privacy &
-Security › Location Services. A width the OS doesn't report (nmcli, netsh) shows `—` and counts
+Security › Location Services. A width the OS doesn't report (nmcli) shows `—` and counts
 as 20 MHz. Recent Windows may refuse to list networks until the terminal has location access.
 
 ## --report

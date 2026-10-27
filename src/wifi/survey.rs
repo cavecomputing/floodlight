@@ -1,7 +1,10 @@
 //! The networks this machine can hear, read from the OS's own tool, which needs no privileges:
-//! nmcli (NetworkManager) or iw on Linux, netsh on Windows. macOS hides network names from
+//! nmcli (NetworkManager) or iw on Linux, the wifi service itself on Windows (windows.rs). macOS hides network names from
 //! terminal tools, so there a small helper app (helper.swift) that the user allows Location
 //! does the listing.
+
+// On Windows only the parsers' tests use the tool-reading code: windows.rs asks the wifi service.
+#![cfg_attr(windows, allow(dead_code))]
 
 use super::channels::{self, Band};
 use super::trend::Trend;
@@ -9,7 +12,6 @@ use crate::brand;
 use crate::scan::hosts::{normalize_mac, printable};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// The helper's program, compiled from helper.swift by build.rs. Other OSes don't use it.
@@ -18,42 +20,8 @@ const HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wifi-helper"));
 #[cfg(not(target_os = "macos"))]
 const HELPER: &[u8] = &[];
 
-/// How long a fresh scan (iwd's, or Windows' through `WINDOWS_SCAN`) gets to finish. Windows
-/// drivers have four seconds.
-const SCAN_WAIT: Duration = Duration::from_secs(4);
-
-/// Set while a Windows scan asked for in the background hasn't had its time yet.
-static WINDOWS_SCANNING: AtomicBool = AtomicBool::new(false);
-
-/// Asks Windows to scan every wifi card. netsh can only list what Windows last scanned, and while
-/// joined to a network it rarely scans, so its list can hold the joined access point alone.
-/// PowerShell reaches wlanapi's WlanScan (no admin needed) through a few lines of C#.
-const WINDOWS_SCAN: &str = r#"Add-Type -TypeDefinition '
-using System; using System.Runtime.InteropServices;
-public static class Wlan {
-    [DllImport("wlanapi.dll")] static extern uint WlanOpenHandle(uint version, IntPtr reserved, out uint negotiated, out IntPtr handle);
-    [DllImport("wlanapi.dll")] static extern uint WlanEnumInterfaces(IntPtr handle, IntPtr reserved, out IntPtr list);
-    [DllImport("wlanapi.dll")] static extern uint WlanScan(IntPtr handle, ref Guid card, IntPtr ssid, IntPtr ie, IntPtr reserved);
-    [DllImport("wlanapi.dll")] static extern void WlanFreeMemory(IntPtr memory);
-    [DllImport("wlanapi.dll")] static extern uint WlanCloseHandle(IntPtr handle, IntPtr reserved);
-    public static void Scan() {
-        uint negotiated; IntPtr handle;
-        if (WlanOpenHandle(2, IntPtr.Zero, out negotiated, out handle) != 0) return;
-        IntPtr list;
-        if (WlanEnumInterfaces(handle, IntPtr.Zero, out list) == 0) {
-            int cards = Marshal.ReadInt32(list);
-            for (int i = 0; i < cards; i++) {
-                // Each WLAN_INTERFACE_INFO is a GUID, 256 UTF-16 characters and a state: 532 bytes,
-                // after the list header of two 4-byte counts.
-                Guid card = (Guid)Marshal.PtrToStructure(new IntPtr(list.ToInt64() + 8 + i * 532), typeof(Guid));
-                WlanScan(handle, ref card, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            }
-            WlanFreeMemory(list);
-        }
-        WlanCloseHandle(handle, IntPtr.Zero);
-    }
-}'
-[Wlan]::Scan()"#;
+/// How long iwd gets to finish the fresh scan it was asked for.
+const SCAN_WAIT: Duration = Duration::from_secs(3);
 
 /// One access point as heard from here.
 #[derive(Clone, Debug)]
@@ -64,9 +32,9 @@ pub struct Network {
     pub bssid: Option<String>,
     /// The centre of its primary channel.
     pub freq_mhz: u32,
-    /// None where the OS doesn't say (nmcli, netsh), which then counts as 20 MHz.
+    /// None where the OS doesn't say (nmcli), which then counts as 20 MHz.
     pub width_mhz: Option<u32>,
-    /// nmcli and netsh give a percentage, turned into dBm the way Windows maps them.
+    /// nmcli gives a percentage, turned into dBm the way Windows maps them.
     pub signal_dbm: i32,
     /// The one this machine is joined to.
     pub connected: bool,
@@ -81,30 +49,12 @@ impl Network {
 /// Every network heard, by band and channel, loudest first on each channel. The error says
 /// what's missing in a few words.
 pub async fn survey() -> Result<Vec<Network>, String> {
+    // Windows reads its wifi service directly (windows.rs); the others ask their own tool.
+    #[cfg(windows)]
+    let mut networks = super::windows::networks()?;
+    #[cfg(not(windows))]
     let mut networks = if cfg!(target_os = "macos") {
         macos().await?
-    } else if cfg!(windows) {
-        // Ask for the next scan in the background and list what the last one found, so the
-        // list never waits on a scan; one at a time, since each asks PowerShell to compile C#.
-        if !WINDOWS_SCANNING.swap(true, Ordering::Relaxed) {
-            tokio::spawn(async {
-                let scan = ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCAN];
-                if output("powershell", &scan).await.is_some() {
-                    tokio::time::sleep(SCAN_WAIT).await;
-                }
-                WINDOWS_SCANNING.store(false, Ordering::Relaxed);
-            });
-        }
-        let text = output("netsh", &["wlan", "show", "networks", "mode=bssid"])
-            .await
-            .ok_or("netsh couldn't list networks: is wifi on?")?;
-        let mut networks = parse_netsh(&text);
-        let interfaces = output("netsh", &["wlan", "show", "interfaces"]).await;
-        let joined = interfaces.as_deref().and_then(joined_bssid);
-        for network in &mut networks {
-            network.connected = network.bssid.is_some() && network.bssid == joined;
-        }
-        networks
     } else {
         linux().await?
     };
@@ -306,10 +256,32 @@ async fn output(program: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn ssid(raw: &str) -> Option<String> {
+pub fn ssid(raw: &str) -> Option<String> {
     let raw = printable(raw.trim());
     // iw prints a hidden network's name as zero bytes, `\x00\x00...`.
     (!raw.is_empty() && !raw.starts_with("\\x00")).then_some(raw)
+}
+
+/// A beacon's channel width from its information elements (id, length, body): 40 MHz when the
+/// HT operation element (61) names a secondary channel, 80 or 160 from the VHT operation element
+/// (192). None when neither says. Only windows.rs reads beacons; it's tested here on every OS.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn width_from_ies(mut ies: &[u8]) -> Option<u32> {
+    let mut width = None;
+    while let [id, length, rest @ ..] = ies {
+        let Some(body) = rest.get(..*length as usize) else {
+            break;
+        };
+        match (id, body) {
+            (61, [_, info, ..]) if matches!(info & 0b11, 1 | 3) => width = width.max(Some(40)),
+            // Width 1 is 80 MHz, or 160 when a second centre segment is set; 2 and 3 are 160.
+            (192, [1, _, 0, ..]) => width = width.max(Some(80)),
+            (192, [1..=3, ..]) => width = width.max(Some(160)),
+            _ => {}
+        }
+        ies = &rest[*length as usize..];
+    }
+    width
 }
 
 fn percent_to_dbm(percent: i32) -> i32 {
@@ -410,65 +382,35 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
     networks
 }
 
-/// The access point Windows is joined to, from `netsh wlan show interfaces`:
-/// `    BSSID                  : aa:bb:cc:dd:ee:ff` (Windows 10), `    AP BSSID ...` (Windows 11).
-pub fn joined_bssid(text: &str) -> Option<String> {
-    text.lines()
-        .filter_map(|line| line.split_once(':'))
-        .find(|(key, _)| matches!(key.trim(), "BSSID" | "AP BSSID"))
-        .and_then(|(_, value)| normalize_mac(value))
-}
-
-/// `netsh wlan show networks mode=bssid`: an `SSID 1 : name` line, then a `BSSID 1 : mac` line
-/// per access point with its `Signal : 90%`, `Channel : 36` and, on newer Windows,
-/// `Band : 5 GHz`. Which one is joined comes from `joined_bssid`.
-pub fn parse_netsh(text: &str) -> Vec<Network> {
-    let mut heard: Vec<(Network, u32, Option<Band>)> = Vec::new();
-    let mut name = None;
-    for line in text.lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let (key, value) = (key.trim(), value.trim());
-        if key.starts_with("SSID") {
-            name = ssid(value);
-        } else if key.starts_with("BSSID") {
-            let network = Network {
-                ssid: name.clone(),
-                bssid: normalize_mac(value),
-                freq_mhz: 0,
-                width_mhz: None,
-                signal_dbm: -100,
-                connected: false,
-            };
-            heard.push((network, 0, None));
-        } else if let Some((network, channel, band)) = heard.last_mut() {
-            match key {
-                "Signal" => {
-                    let percent = value.trim_end_matches('%').parse().unwrap_or(0);
-                    network.signal_dbm = percent_to_dbm(percent);
-                }
-                "Channel" => *channel = value.parse().unwrap_or(0),
-                "Band" if value.starts_with('2') => *band = Some(Band::Ghz2),
-                "Band" if value.starts_with('5') => *band = Some(Band::Ghz5),
-                "Band" if value.starts_with('6') => *band = Some(Band::Ghz6),
-                _ => {}
-            }
-        }
-    }
-    heard
-        .into_iter()
-        .filter(|(_, channel, _)| *channel > 0)
-        .map(|(network, channel, band)| Network {
-            freq_mhz: on_channel(channel, band),
-            ..network
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_width_from_beacon_elements() {
+        let ht_40 = [61, 3, 36, 0b0101, 0];
+        let vht_80 = [192, 3, 1, 42, 0];
+        let vht_160 = [192, 3, 1, 42, 50];
+        let other = [0, 4, b'H', b'o', b'm', b'e'];
+        assert_eq!(
+            width_from_ies(&[other.as_slice(), &ht_40].concat()),
+            Some(40)
+        );
+        assert_eq!(
+            width_from_ies(&[ht_40.as_slice(), &vht_80].concat()),
+            Some(80)
+        );
+        assert_eq!(
+            width_from_ies(&[ht_40.as_slice(), &vht_160].concat()),
+            Some(160)
+        );
+        assert_eq!(width_from_ies(&other), None);
+        assert_eq!(
+            width_from_ies(&[61, 9, 1]),
+            None,
+            "a length running past the end"
+        );
+    }
 
     #[test]
     fn reads_nmcli() {
@@ -545,51 +487,5 @@ BSS aa:bb:cc:00:00:02(on wlan0)
             parse_helper("error\tno wifi card found\n").unwrap_err(),
             "no wifi card found"
         );
-    }
-
-    #[test]
-    fn finds_the_bssid_windows_is_joined_to() {
-        let text = "    Name                   : Wi-Fi\n    SSID                   : Home\n    \
-                    BSSID                  : aa:bb:cc:00:00:01\n    Channel                : 36\n";
-        assert_eq!(joined_bssid(text).as_deref(), Some("aa:bb:cc:00:00:01"));
-        assert_eq!(joined_bssid("    State : disconnected\n"), None);
-        let windows_11 = "    AP BSSID               : aa:bb:cc:00:00:02\n    Band : 5 GHz\n";
-        assert_eq!(
-            joined_bssid(windows_11).as_deref(),
-            Some("aa:bb:cc:00:00:02")
-        );
-    }
-
-    #[test]
-    fn reads_netsh() {
-        let text = "\
-Interface name : Wi-Fi
-There are 2 networks currently visible.
-
-SSID 1 : Home
-    Network type            : Infrastructure
-    Authentication          : WPA2-Personal
-    BSSID 1                 : aa:bb:cc:00:00:01
-         Signal             : 90%
-         Radio type         : 802.11ax
-         Band               : 6 GHz
-         Channel            : 5
-    BSSID 2                 : aa:bb:cc:00:00:02
-         Signal             : 40%
-         Channel            : 11
-
-SSID 2 : 
-    BSSID 1                 : aa:bb:cc:00:00:03
-         Signal             : 60%
-         Channel            : 44
-";
-        let networks = parse_netsh(text);
-        assert_eq!(networks.len(), 3);
-        assert_eq!(networks[0].ssid.as_deref(), Some("Home"));
-        assert_eq!(networks[0].freq_mhz, 5975);
-        assert_eq!(networks[0].signal_dbm, -55);
-        assert_eq!(networks[1].freq_mhz, 2462);
-        assert_eq!(networks[2].ssid, None);
-        assert_eq!(networks[2].freq_mhz, 5220);
     }
 }

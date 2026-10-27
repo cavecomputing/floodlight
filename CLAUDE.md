@@ -138,7 +138,7 @@ What each OS needs before the first build: Rust (rustup) and a C compiler (`base
 `build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools with
 the "Desktop development with C++" workload on Windows). At run time: `ping`, and `ip` (iproute2)
 or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying.
-For `--wireless`: `nmcli` or `iw` on Linux, `netsh` on Windows; on macOS the build compiles a
+For `--wireless`: `nmcli` or `iw` on Linux, nothing extra on Windows (it asks the wifi service through windows-sys); on macOS the build compiles a
 Swift helper with `swiftc` (part of Xcode's command line tools).
 
 Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/bin`.
@@ -214,7 +214,9 @@ src/
     hosts.rs             a Host row, the Hosts table built from Events, MAC normalising, and how a
                          Query matches a row (address, MAC with or without separators, maker, name)
   wifi/                  the WiFi survey, no UI
-    survey.rs            the networks heard, from nmcli / iw / netsh / the macOS helper, a parser each
+    survey.rs            the networks heard, from nmcli / iw / the macOS helper, a parser each, and
+                         the channel width read from a beacon's elements
+    windows.rs           Windows' wifi service (wlanapi) asked directly: scan, the list heard, the joined one
     helper.swift         the macOS helper app: names need Location, which only an app can be given
     channels.rs          channels as frequencies: bands, the slice a network fills, who shares or
                          overlaps it, the quietest channel, the strip that draws a band
