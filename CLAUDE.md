@@ -234,7 +234,7 @@ src/
     subnet.rs            the subnet to sweep: typed, or found from this machine's interfaces
     sweep.rs             the sweep itself: pings at once, the ARP table on a timer, makers and
                          names filled in; the Event enum the screen hears
-    ping.rs              one address: the UDP poke and the system ping, and reading its round trip
+    ping.rs              one address: the UDP poke and the system ping (IcmpSendEcho on Windows), and reading its round trip
     arp.rs               the OS's ARP table in its three formats (arp -an, ip neigh, Windows arp -a)
     mdns.rs              a reverse lookup over mDNS: the PTR question packet and reading the reply
     vendor.rs            the maker from a MAC's first three bytes; randomized addresses; tidied names
@@ -307,7 +307,8 @@ at the bottom of the file they test.
   before anything has answered; rows fill in. The maker registry is parsed inside the sweep task,
   not on the screen's thread. Dropping the sweep's receiver (Ctrl+R) ends the old sweep quietly.
 - **No privileges.** `--ping` uses the unprivileged ICMP datagram socket (Linux, macOS) and
-  `IcmpSendEcho` (Windows), never a raw socket. Hosts are found with the system `ping` plus a one-byte UDP datagram to the
+  `IcmpSendEcho` (Windows), never a raw socket. Hosts are found with the system `ping` (on Windows `IcmpSendEcho`, since `ping.exe`
+  prints in the system's language) plus a one-byte UDP datagram to the
   discard port (which makes the OS resolve the MAC even for hosts that ignore pings), and the MACs
   come from the OS's ARP table. Nothing opens a raw socket, so nothing needs root or setcap.
 - **Names come from the host itself first.** Reverse DNS on a home or office LAN rarely knows a
