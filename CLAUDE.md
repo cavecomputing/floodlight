@@ -191,7 +191,9 @@ downloads and uploads taking turns as they grow (100 kB up to 250 MB), each dire
 every request of a size takes over a second, reporting the 90th percentile. The method follows the
 npm package `@cloudflare/speedtest` (the page's engine): the server's time from each answer's
 `server-timing` header comes off downloads and pings, uploads post the text `0` to
-`__up?bytes=N` and are timed to the answer, 429s are waited out and retried. It speaks HTTPS
+`__up?bytes=N` and are timed to the answer, 429s are waited out and retried. A 403 (Cloudflare's
+firewall, seen partway through real runs) is tried once more on a fresh connection; if it stands,
+that direction keeps what it measured and the run fails only when it had measured nothing. It speaks HTTPS
 through the ureq crate on a thread of its own, one kept-open connection, cookies kept, no gzip.
 `--count N` runs it N times, `--wait SECONDS` apart (5 by default); Ctrl+R runs the same again once it is done.
 

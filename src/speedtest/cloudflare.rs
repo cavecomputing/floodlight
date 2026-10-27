@@ -128,8 +128,7 @@ pub fn upload(agent: &Agent, body: &[u8]) -> Result<Duration, String> {
 }
 
 /// Makes the request, waiting and asking again when Cloudflare says too many (429), as often as
-/// its page does, and once more after a pause when its firewall turns the request away (403).
-/// Hands back when the answer's request went out, and the answer.
+/// its page does. Hands back when the answer's request went out, and the answer.
 fn answered(
     request: impl Fn() -> Result<Response<Body>, ureq::Error>,
 ) -> Result<(Instant, Response<Body>), String> {
@@ -141,11 +140,6 @@ fn answered(
         if status == 429 && retries < RETRIES {
             retries += 1;
             std::thread::sleep(retry_after(&answer));
-            continue;
-        }
-        if status == 403 && retries == 0 {
-            retries += 1;
-            std::thread::sleep(Duration::from_secs(2));
             continue;
         }
         if !answer.status().is_success() {

@@ -201,14 +201,14 @@ pub fn finished(count: u32, wait: Duration, mut each: impl FnMut(&Run)) -> Runs 
 }
 
 fn run_all(count: u32, wait: Duration, tx: Sender<Event>) {
-    let agent = cloudflare::agent();
+    let mut agent = cloudflare::agent();
     for i in 0..count {
         if i > 0 {
             let _ = tx.send(Event::Waiting(wait));
             std::thread::sleep(wait);
         }
         let _ = tx.send(Event::Started);
-        let _ = tx.send(match run(&agent, &tx) {
+        let _ = tx.send(match run(&mut agent, &tx) {
             Ok(()) => Event::Finished,
             Err(why) => Event::Failed(why),
         });
@@ -216,7 +216,7 @@ fn run_all(count: u32, wait: Duration, tx: Sender<Event>) {
     let _ = tx.send(Event::Done);
 }
 
-fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
+fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
     let send = |event| {
         let _ = tx.send(event);
     };
@@ -235,7 +235,7 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
     }
 
     let mut measured = Vec::new();
-    let mut uploads = 0;
+    let (mut downloads, mut uploads) = (0, 0);
     for (phase, bytes, times) in SEQUENCE {
         if measured.contains(&phase) {
             continue;
@@ -248,21 +248,27 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
         };
         let mut quickest = Duration::MAX;
         for _ in 0..times {
-            let took = match phase {
-                Phase::Upload => match cloudflare::upload(agent, &body) {
-                    Ok(took) => took,
-                    // Cloudflare's firewall sometimes refuses uploads partway through a run; the
-                    // ones already measured stand, and the downloads carry on.
-                    Err(why) if why.starts_with(cloudflare::REFUSED) && uploads > 0 => {
-                        measured.push(phase);
-                        break;
+            let took = match transfer(agent, phase, bytes, &body) {
+                Ok(took) => took,
+                // Cloudflare's firewall sometimes refuses a transfer partway through a run,
+                // whichever way it goes. What that direction measured so far stands, and the
+                // other carries on; only a refusal before anything was measured fails the run.
+                Err(why) if why.starts_with(cloudflare::REFUSED) => {
+                    let some = match phase {
+                        Phase::Upload => uploads > 0,
+                        _ => downloads > 0,
+                    };
+                    if !some {
+                        return Err(why);
                     }
-                    Err(why) => return Err(why),
-                },
-                _ => cloudflare::download(agent, bytes)?,
+                    measured.push(phase);
+                    break;
+                }
+                Err(why) => return Err(why),
             };
-            if phase == Phase::Upload {
-                uploads += 1;
+            match phase {
+                Phase::Upload => uploads += 1,
+                _ => downloads += 1,
             }
             quickest = quickest.min(took);
             match (phase, cloudflare::mbps(bytes, took)) {
@@ -276,6 +282,27 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// One transfer. A refusal (403) is tried once more on a fresh connection, in case Cloudflare
+/// took against the one in use rather than this machine.
+fn transfer(
+    agent: &mut Agent,
+    phase: Phase,
+    bytes: usize,
+    body: &[u8],
+) -> Result<Duration, String> {
+    let go = |agent: &Agent| match phase {
+        Phase::Upload => cloudflare::upload(agent, body),
+        _ => cloudflare::download(agent, bytes),
+    };
+    match go(agent) {
+        Err(why) if why.starts_with(cloudflare::REFUSED) => {
+            *agent = cloudflare::agent();
+            go(agent)
+        }
+        outcome => outcome,
+    }
 }
 
 #[cfg(test)]
