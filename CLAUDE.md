@@ -57,9 +57,8 @@ learning Rust only while the code stays small and plain.
   matcher in `scan/hosts.rs`, the constants in `brand.rs`. A second implementation of something
   the repo already does is the most expensive kind of code.
 - **No new crate without a reason you can state in one line**, written as a comment above it in
-  `Cargo.toml` (every dependency there has one). Prefer the OS's own tool over a crate that links
-  against a system library: the sweep shells out to `ping`, `arp`/`ip` and the clipboard tools
-  for exactly that reason, and needs no root.
+  `Cargo.toml` (every dependency there has one). When a crate is faster or works on more systems
+  than shelling out to the OS's own tool, use the crate.
 - Leave out what nothing needs yet: config knobs, generic traits with one implementation,
   `Box<dyn>` where a plain enum works, error handling around code that cannot fail.
 - Plain Rust over clever Rust. Prefer a `match` to a chain of combinators when it reads better,
