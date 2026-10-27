@@ -140,6 +140,11 @@ For `--wireless`: `nmcli` or `iw` on Linux, `system_profiler` on macOS, `netsh` 
 
 Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/bin`.
 
+Releasing: set `version` in `Cargo.toml`, commit, then `git tag v0.1.0 && git push origin v0.1.0`.
+`.github/workflows/release.yml` checks the tag matches that version, runs the tests on Windows,
+builds the release binary and publishes a GitHub release with the `.exe` attached. A tag with a
+suffix (`v0.2.0-rc.1`) becomes a pre-release.
+
 ### How much verification a change needs
 
 - Every change: `cargo build`, `cargo test` and `cargo clippy --all-targets` with no warnings,
