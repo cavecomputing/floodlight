@@ -154,8 +154,14 @@ fn helper_app() -> std::io::Result<PathBuf> {
     let app = dirs.data_dir().join(format!("{}.app", brand::WIFI_HELPER));
     let program = app.join("Contents/MacOS").join(brand::WIFI_HELPER);
     let plist = app.join("Contents/Info.plist");
+    // Signing rewrites the program inside the bundle, so it never matches this build's bytes
+    // again. A copy of what was written is kept beside the bundle to compare with instead.
+    let written = dirs
+        .data_dir()
+        .join(format!("{}.written", brand::WIFI_HELPER));
     let info = info_plist();
-    if fs::read(&program).ok().as_deref() == Some(HELPER)
+    if fs::read(&written).ok().as_deref() == Some(HELPER)
+        && program.exists()
         && fs::read_to_string(&plist).ok() == Some(info.clone())
     {
         return Ok(app);
@@ -175,6 +181,7 @@ fn helper_app() -> std::io::Result<PathBuf> {
     if !signed.status.success() {
         return Err(std::io::Error::other("codesign refused it"));
     }
+    fs::write(&written, HELPER)?;
     Ok(app)
 }
 
