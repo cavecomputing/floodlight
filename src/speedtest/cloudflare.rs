@@ -32,8 +32,8 @@ impl Server {
     }
 }
 
-/// Requests that share their connections, so each after the first skips the setup, like a
-/// browser's.
+/// Requests that share their connections, so each after the first skips the setup, and hand
+/// back the cookies Cloudflare sets, like a browser's.
 pub fn agent() -> Agent {
     Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(60)))

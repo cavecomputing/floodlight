@@ -249,7 +249,8 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
 
     send(Event::Phase(Phase::Upload));
     for (bytes, times) in UPLOADS {
-        let body = vec![0; bytes];
+        // The character 0 over and over, the text Cloudflare's own page sends, not raw zero bytes.
+        let body = vec![b'0'; bytes];
         let mut long_enough = false;
         for _ in 0..times {
             let took = cloudflare::upload(agent, &body)?;
