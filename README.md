@@ -1,5 +1,9 @@
 # Floodlight
 
+Each feature has its flag; `floodlight` alone lists them.
+
+## --sweep
+
 Sweeps a subnet and shows everything that answered: address, MAC, maker and name. Type part of
 any of them to find the one you want. Made for the moment a camera or switch has just been
 plugged in and all you have is the MAC on its label.
@@ -13,10 +17,10 @@ plugged in and all you have is the MAC on its label.
 ```
 
 ```bash
-floodlight                      # the subnet this machine is on
-floodlight 192.168.1.0/24       # a subnet, or an address for its /24
-floodlight --plain              # print the table and exit
-floodlight --find 3d:57         # print only the matching rows
+floodlight --sweep                  # the subnet this machine is on
+floodlight --sweep 192.168.1.0/24   # a subnet, or an address for its /24
+floodlight --sweep --plain          # print the table and exit
+floodlight --sweep --find 3d:57     # print only the matching rows
 ```
 
 On screen: type to filter (an address fragment, a MAC with or without separators, a maker, a

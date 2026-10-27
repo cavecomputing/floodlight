@@ -115,10 +115,11 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
 ## Build / run / test
 
 ```bash
-cargo run                         # build (debug) and sweep the subnet this machine is on
-cargo run -- 192.168.1.0/24       # sweep that subnet (everything after -- goes to the app)
-cargo run -- --plain              # print the table and exit (for pipes, scripts, a quick look)
-cargo run -- --find 3d:57         # print only the rows matching an ip, mac, maker or name fragment
+cargo run                              # build (debug) and print the help: every feature is a flag
+cargo run -- --sweep                   # sweep the subnet this machine is on
+cargo run -- --sweep 192.168.1.0/24    # sweep that subnet (everything after -- goes to the app)
+cargo run -- --sweep --plain           # print the table and exit (for pipes, scripts, a quick look)
+cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac, maker or name fragment
 
 cargo test                        # run every test
 cargo test mac                    # run only tests whose name contains "mac"
@@ -152,7 +153,9 @@ Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/
 
 ## Architecture
 
-One command, one sweep: `floodlight [subnet]` opens the screen, starts the sweep in the
+Each feature is a flag, and the command alone prints the help listing them.
+
+`--sweep`: `floodlight --sweep [subnet]` opens the screen, starts the sweep in the
 background, and fills the table as answers come in. Ctrl+R sweeps again. There is no daemon, no
 state between runs beyond `settings.toml`.
 
