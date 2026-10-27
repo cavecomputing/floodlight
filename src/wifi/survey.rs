@@ -1,9 +1,20 @@
 //! The networks this machine can hear, read from the OS's own tool, which needs no privileges:
-//! nmcli (NetworkManager) or iw on Linux, system_profiler on macOS, netsh on Windows.
+//! nmcli (NetworkManager) or iw on Linux, netsh on Windows. macOS hides network names from
+//! terminal tools, so there a small helper app (helper.swift) that the user allows Location
+//! does the listing.
 
 use super::channels::{self, Band};
+use crate::brand;
 use crate::scan::hosts::normalize_mac;
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
+
+/// The helper's program, compiled from helper.swift by build.rs. Other OSes don't use it.
+#[cfg(target_os = "macos")]
+const HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wifi-helper"));
+#[cfg(not(target_os = "macos"))]
+const HELPER: &[u8] = &[];
 
 /// How long iwd gets to finish the fresh scan it was asked for.
 const SCAN_WAIT: Duration = Duration::from_secs(3);
@@ -35,10 +46,7 @@ impl Network {
 /// what's missing in a few words.
 pub async fn survey() -> Result<Vec<Network>, String> {
     let mut networks = if cfg!(target_os = "macos") {
-        let text = output("system_profiler", &["SPAirPortDataType"])
-            .await
-            .ok_or("system_profiler couldn't list networks")?;
-        parse_system_profiler(&text)
+        macos().await?
     } else if cfg!(windows) {
         let text = output("netsh", &["wlan", "show", "networks", "mode=bssid"])
             .await
@@ -86,6 +94,122 @@ async fn linux() -> Result<Vec<Network>, String> {
             .await
             .ok_or("listing networks needs nmcli (NetworkManager) or iw")?;
         networks.extend(parse_iw(&text));
+    }
+    Ok(networks)
+}
+
+/// Runs the helper app through `open`, so macOS treats it as an app of its own (with its own
+/// Location permission) rather than part of the terminal, and reads the list it writes. The
+/// first run shows the Location prompt.
+async fn macos() -> Result<Vec<Network>, String> {
+    let app = helper_app().map_err(|why| format!("couldn't set up the wifi helper: {why}"))?;
+    let list = std::env::temp_dir().join(format!("{}-wifi-{}.txt", brand::BIN, std::process::id()));
+    let (app, list_arg) = (app.to_string_lossy(), list.to_string_lossy());
+    output("open", &["-W", "-n", "-a", &app, "--args", &list_arg])
+        .await
+        .ok_or("couldn't open the wifi helper")?;
+    let text = fs::read_to_string(&list).map_err(|_| "the wifi helper didn't answer")?;
+    let _ = fs::remove_file(&list);
+    parse_helper(&text)
+}
+
+/// The helper as an app bundle in the data folder, written (and ad-hoc signed, which macOS
+/// needs before it will run it) only when this build's copy differs from what's there.
+fn helper_app() -> std::io::Result<PathBuf> {
+    let dirs = directories::ProjectDirs::from("", "", brand::CONFIG_DIR)
+        .ok_or_else(|| std::io::Error::other("no data folder on this OS"))?;
+    let app = dirs.data_dir().join(format!("{}.app", brand::WIFI_HELPER));
+    let program = app.join("Contents/MacOS").join(brand::WIFI_HELPER);
+    let plist = app.join("Contents/Info.plist");
+    let info = info_plist();
+    if fs::read(&program).ok().as_deref() == Some(HELPER)
+        && fs::read_to_string(&plist).ok() == Some(info.clone())
+    {
+        return Ok(app);
+    }
+    fs::create_dir_all(app.join("Contents/MacOS"))?;
+    fs::write(&program, HELPER)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+    }
+    fs::write(&plist, info)?;
+    let signed = std::process::Command::new("codesign")
+        .args(["--force", "--sign", "-"])
+        .arg(&app)
+        .output()?;
+    if !signed.status.success() {
+        return Err(std::io::Error::other("codesign refused it"));
+    }
+    Ok(app)
+}
+
+/// The bundle's Info.plist: a background app (no Dock icon) that says why it wants Location.
+fn info_plist() -> String {
+    let why = format!(
+        "macOS shows WiFi network names only to apps allowed Location. {} --wireless needs them \
+         to name the networks it hears; it never reads where you are.",
+        brand::BIN
+    );
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>{id}</string>
+  <key>CFBundleName</key><string>{name}</string>
+  <key>CFBundleExecutable</key><string>{name}</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{version}</string>
+  <key>CFBundleVersion</key><string>{version}</string>
+  <key>LSUIElement</key><true/>
+  <key>NSLocationUsageDescription</key><string>{why}</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>{why}</string>
+</dict>
+</plist>
+"#,
+        id = brand::WIFI_HELPER_ID,
+        name = brand::WIFI_HELPER,
+        version = env!("CARGO_PKG_VERSION"),
+    )
+}
+
+/// What the helper wrote: a tab-separated line per network (ssid, bssid, channel, band, width,
+/// signal, `joined`), or `denied`, or `error` and why.
+pub fn parse_helper(text: &str) -> Result<Vec<Network>, String> {
+    if text.trim() == "denied" {
+        return Err(format!(
+            "macOS hides wifi names: allow {} in System Settings › Privacy & Security › Location Services, then ^r",
+            brand::WIFI_HELPER
+        ));
+    }
+    if let Some(why) = text.strip_prefix("error\t") {
+        return Err(why.trim().to_string());
+    }
+    let mut networks = Vec::new();
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [name, bssid, channel, band, width, signal, joined] = fields.as_slice() else {
+            continue;
+        };
+        let (Ok(channel), Ok(signal)) = (channel.parse(), signal.parse()) else {
+            continue;
+        };
+        let band = match *band {
+            "2" => Some(Band::Ghz2),
+            "5" => Some(Band::Ghz5),
+            "6" => Some(Band::Ghz6),
+            _ => None,
+        };
+        networks.push(Network {
+            ssid: ssid(name),
+            bssid: normalize_mac(bssid),
+            freq_mhz: on_channel(channel, band),
+            width_mhz: width.parse().ok().filter(|mhz| *mhz > 0),
+            signal_dbm: signal,
+            connected: *joined == "joined",
+        });
     }
     Ok(networks)
 }
@@ -207,70 +331,6 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
     networks
 }
 
-/// `system_profiler SPAirPortDataType`: the joined network under `Current Network Information:`,
-/// the rest under `Other Local Wi-Fi Networks:`, each a name line ending in `:` and then
-/// `Channel: 149 (5GHz, 80MHz)` and `Signal / Noise: -54 dBm / -95 dBm`.
-pub fn parse_system_profiler(text: &str) -> Vec<Network> {
-    let mut networks = Vec::new();
-    // The heading's indent and whether it's the joined network.
-    let mut section: Option<(usize, bool)> = None;
-    for line in text.lines() {
-        let indent = line.len() - line.trim_start().len();
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if let Some((heading, _)) = section
-            && indent <= heading
-        {
-            section = None;
-        }
-        match line {
-            "Current Network Information:" => section = Some((indent, true)),
-            "Other Local Wi-Fi Networks:" => section = Some((indent, false)),
-            _ => {}
-        }
-        let Some((_, connected)) = section else {
-            continue;
-        };
-        if let Some(name) = line.strip_suffix(':') {
-            networks.push(Network {
-                ssid: ssid(name),
-                bssid: None,
-                freq_mhz: 0,
-                width_mhz: None,
-                signal_dbm: -100,
-                connected,
-            });
-        } else if let Some(network) = networks.last_mut() {
-            if let Some(value) = line.strip_prefix("Channel:") {
-                let numbers: Vec<u32> = value
-                    .split(|c: char| !c.is_ascii_digit())
-                    .filter_map(|number| number.parse().ok())
-                    .collect();
-                let band = match numbers.get(1) {
-                    Some(2) => Some(Band::Ghz2),
-                    Some(5) => Some(Band::Ghz5),
-                    Some(6) => Some(Band::Ghz6),
-                    _ => None,
-                };
-                if let Some(channel) = numbers.first() {
-                    network.freq_mhz = on_channel(*channel, band);
-                }
-                network.width_mhz = numbers.get(2).copied();
-            } else if let Some(value) = line.strip_prefix("Signal / Noise:") {
-                network.signal_dbm = value
-                    .split_whitespace()
-                    .next()
-                    .and_then(|dbm| dbm.parse().ok())
-                    .unwrap_or(-100);
-            }
-        }
-    }
-    networks.retain(|network| network.freq_mhz > 0);
-    networks
-}
-
 /// `netsh wlan show networks mode=bssid`: an `SSID 1 : name` line, then a `BSSID 1 : mac` line
 /// per access point with its `Signal : 90%`, `Channel : 36` and, on newer Windows,
 /// `Band : 5 GHz`. It doesn't say which one is joined.
@@ -370,39 +430,31 @@ BSS aa:bb:cc:00:00:02(on wlan0)
     }
 
     #[test]
-    fn reads_system_profiler() {
-        let text = "\
-Wi-Fi:
-
-      Interfaces:
-        en0:
-          Card Type: Wi-Fi
-          Status: Connected
-          Current Network Information:
-            Home:
-              PHY Mode: 802.11ac
-              Channel: 149 (5GHz, 80MHz)
-              Signal / Noise: -54 dBm / -95 dBm
-          Other Local Wi-Fi Networks:
-            Neighbour:
-              Channel: 6 (2GHz, 20MHz)
-              Signal / Noise: -71 dBm / -95 dBm
-            Attic:
-              Channel: 37 (6GHz, 160MHz)
-              Signal / Noise: -80 dBm / -95 dBm
-        awdl0:
-          Status: Off
-";
-        let networks = parse_system_profiler(text);
+    fn reads_the_macos_helper() {
+        let text = "Home\taa:bb:cc:00:00:01\t149\t5\t80\t-54\tjoined\n\
+                    \taa:bb:cc:00:00:02\t6\t2\t0\t-71\t\n\
+                    Attic\t\t37\t6\t160\t-80\t\n";
+        let networks = parse_helper(text).unwrap();
         assert_eq!(networks.len(), 3);
         assert_eq!(networks[0].ssid.as_deref(), Some("Home"));
         assert!(networks[0].connected);
         assert_eq!(networks[0].freq_mhz, 5745);
         assert_eq!(networks[0].width_mhz, Some(80));
+        assert_eq!(networks[1].ssid, None);
         assert_eq!(networks[1].freq_mhz, 2437);
+        assert_eq!(networks[1].width_mhz, None);
         assert_eq!(networks[1].signal_dbm, -71);
-        assert!(!networks[1].connected);
+        assert_eq!(networks[2].bssid, None);
         assert_eq!(networks[2].freq_mhz, 6135);
+        assert!(
+            parse_helper("denied\n")
+                .unwrap_err()
+                .contains("Location Services")
+        );
+        assert_eq!(
+            parse_helper("error\tno wifi card found\n").unwrap_err(),
+            "no wifi card found"
+        );
     }
 
     #[test]

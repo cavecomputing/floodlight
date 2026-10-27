@@ -136,7 +136,8 @@ What each OS needs before the first build: Rust (rustup) and a C compiler (`base
 `build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools with
 the "Desktop development with C++" workload on Windows). At run time: `ping`, and `ip` (iproute2)
 or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying.
-For `--wireless`: `nmcli` or `iw` on Linux, `system_profiler` on macOS, `netsh` on Windows.
+For `--wireless`: `nmcli` or `iw` on Linux, `netsh` on Windows; on macOS the build compiles a
+Swift helper with `swiftc` (part of Xcode's command line tools).
 
 Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/bin`.
 
@@ -186,6 +187,7 @@ key wiring.
 
 ```
 Cargo.toml, Cargo.lock   dependencies, each with its one-line reason (see "Rust in plain terms")
+build.rs                 runs before the build: on macOS, compiles src/wifi/helper.swift
 assets/oui.csv           the IEEE MA-L registry, cut to prefix and name; assets/README.md says how to refresh it
 assets/logo.svg          the logo the README shows: a lamp lighting the devices below it, in the Gruvbox yellow
 src/
@@ -202,7 +204,8 @@ src/
     hosts.rs             a Host row, the Hosts table built from Events, MAC normalising, and how a
                          Query matches a row (address, MAC with or without separators, maker, name)
   wifi/                  the WiFi survey, no UI
-    survey.rs            the networks heard, from nmcli / iw / system_profiler / netsh, a parser each
+    survey.rs            the networks heard, from nmcli / iw / netsh / the macOS helper, a parser each
+    helper.swift         the macOS helper app: names need Location, which only an app can be given
     channels.rs          channels as frequencies: bands, the slice a network fills, who shares or
                          overlaps it, the quietest channel, the strip that draws a band
   os/                    the OS outside the network
@@ -249,6 +252,11 @@ at the bottom of the file they test.
 - **Names come from the host itself first.** Reverse DNS on a home or office LAN rarely knows a
   camera; the mDNS PTR query (with the unicast-response bit, so the reply comes to our socket)
   is what devices answer. Both run at once; mDNS wins.
+- **macOS hides WiFi names from terminal tools** (since 14.4: `<redacted>`). Only an app the user
+  has allowed Location sees them, so `--wireless` on macOS runs `helper.swift` as a background
+  app: the binary carries it, writes it as `<WIFI_HELPER>.app` into the data folder (ad-hoc signed,
+  rewritten only when it changes), starts it with `open` so macOS treats it as its own app, and
+  reads the list it writes to a temp file. A rewritten helper may need Location allowed again.
 - **Settings** live in `settings.toml` (hand-editable) in the OS's config folder:
   `~/.config/<config dir>/` on Linux, `~/Library/Application Support/<config dir>/` on macOS,
   `%APPDATA%\<config dir>\config\` on Windows. Unknown or missing keys fall back to defaults; a

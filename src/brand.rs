@@ -6,3 +6,9 @@ pub const BIN: &str = "floodlight";
 
 /// The folder under the OS's config directory that holds settings.toml.
 pub const CONFIG_DIR: &str = "floodlight";
+
+/// The macOS WiFi helper app, as it appears under Location Services in System Settings.
+pub const WIFI_HELPER: &str = "Floodlight WiFi";
+
+/// The helper app's bundle identifier, which macOS keys the Location permission on.
+pub const WIFI_HELPER_ID: &str = "cavecomputing.floodlight.wifi";

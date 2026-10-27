@@ -85,9 +85,12 @@ floodlight --wireless --plain   # print the table and exit
 ```
 
 Read from the OS's own tool, no root: `nmcli` (NetworkManager) or `iw` on Linux (with iwd, as on
-Omarchy, install `iw`; iwd is asked for a fresh scan first), `system_profiler` on macOS, `netsh`
-on Windows. A width the OS doesn't report (nmcli, netsh) shows `—` and counts as 20 MHz. macOS
-and recent Windows may hide network names until the terminal has location access.
+Omarchy, install `iw`; iwd is asked for a fresh scan first), `netsh` on Windows. macOS hides
+network names from terminal tools, so there the list comes from a small helper app built in;
+the first run asks to allow it Location (it never reads where you are, it's just the permission
+macOS ties names to). If you said no, allow `Floodlight WiFi` under System Settings › Privacy &
+Security › Location Services. A width the OS doesn't report (nmcli, netsh) shows `—` and counts
+as 20 MHz. Recent Windows may refuse to list networks until the terminal has location access.
 
 ## Building from a clone
 
