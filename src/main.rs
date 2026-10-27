@@ -22,13 +22,13 @@ struct Args {
     wireless: bool,
     /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
     /// Defaults to the one this machine is on.
-    #[arg(requires = "sweep")]
+    #[arg(conflicts_with = "wireless")]
     subnet: Option<String>,
     /// Print the table and exit instead of opening the screen.
     #[arg(long)]
     plain: bool,
     /// Print only the hosts matching this ip, mac, maker or name fragment, then exit.
-    #[arg(long, value_name = "QUERY", requires = "sweep")]
+    #[arg(long, value_name = "QUERY", conflicts_with = "wireless")]
     find: Option<String>,
 }
 
