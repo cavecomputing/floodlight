@@ -27,6 +27,11 @@ const SEQUENCE: [(Phase, usize, usize); 11] = [
 /// Once every request of a size takes longer than this, the link is measured that way; bigger
 /// sizes would only take longer.
 const LONG_ENOUGH: Duration = Duration::from_secs(1);
+/// Transfers at once from this size up. One connection seldom fills a fast line (its TCP window
+/// and a single thread's TLS cap it well under a gigabit), so the big sizes go over several,
+/// the way fast.com and Ookla measure, and their bytes count together.
+const STREAMS_FROM: usize = 10_000_000;
+const STREAMS: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Phase {
@@ -263,9 +268,10 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
             Phase::Upload => vec![b'0'; bytes],
             _ => Vec::new(),
         };
+        let streams = if bytes >= STREAMS_FROM { STREAMS } else { 1 };
         let mut quickest = Duration::MAX;
         for _ in 0..times {
-            let took = match transfer(agent, phase, bytes, &body) {
+            let took = match transfer(agent, phase, bytes, &body, streams) {
                 Ok(took) => took,
                 // Cloudflare's firewall sometimes refuses a transfer partway through a run,
                 // whichever way it goes. What that direction measured so far stands, and the
@@ -288,7 +294,7 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
                 _ => downloads += 1,
             }
             quickest = quickest.min(took);
-            match (phase, cloudflare::mbps(bytes, took)) {
+            match (phase, cloudflare::mbps(bytes * streams, took)) {
                 (Phase::Upload, Some(mbps)) => send(Event::Upload(mbps)),
                 (_, Some(mbps)) => send(Event::Download(mbps)),
                 (_, None) => {}
@@ -301,22 +307,38 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
     Ok(())
 }
 
-/// One transfer. A refusal (403) is tried once more on a fresh connection, in case Cloudflare
-/// took against the one in use rather than this machine.
+/// One transfer of `bytes` each over `streams` connections at once, and how long the slowest
+/// took. A refusal (403) is tried once more on fresh connections, in case Cloudflare took against
+/// the ones in use rather than this machine.
 fn transfer(
     agent: &mut Agent,
     phase: Phase,
     bytes: usize,
     body: &[u8],
+    streams: usize,
 ) -> Result<Duration, String> {
-    let go = |agent: &Agent| match phase {
+    let one = |agent: &Agent| match phase {
         Phase::Upload => cloudflare::upload(agent, body),
         _ => cloudflare::download(agent, bytes),
     };
-    match go(agent) {
+    // Each stream on a thread of its own; the agent they share opens a connection for each.
+    let all = |agent: &Agent| -> Result<Duration, String> {
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..streams).map(|_| scope.spawn(|| one(agent))).collect();
+            let mut slowest = Duration::ZERO;
+            for thread in threads {
+                let took = thread
+                    .join()
+                    .map_err(|_| "a transfer's thread died".to_string())??;
+                slowest = slowest.max(took);
+            }
+            Ok(slowest)
+        })
+    };
+    match all(agent) {
         Err(why) if why.starts_with(cloudflare::REFUSED) => {
             *agent = cloudflare::agent();
-            go(agent)
+            all(agent)
         }
         outcome => outcome,
     }

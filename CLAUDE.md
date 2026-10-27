@@ -195,7 +195,10 @@ Ctrl+R forgets them and starts over. `--plain` prints one scan.
 `--speedtest`: `floodlight --speedtest` opens a screen with a row a run and fills it in as the run
 goes: latency and jitter from 20 empty requests, then Cloudflare's own page's sequence of
 downloads and uploads taking turns as they grow (100 kB up to 250 MB), each direction stopping once
-every request of a size takes over a second, reporting the 90th percentile. The method follows the
+every request of a size takes over a second, reporting the 90th percentile. From 10 MB up a
+transfer goes over four connections at once (a thread each, the slowest one's time, their bytes
+summed), since one connection and one thread's TLS top out well under a gigabit; the page's own
+single stream does too, which is why it reads low against fast.com on a fast line. The method follows the
 npm package `@cloudflare/speedtest` (the page's engine): the server's time from each answer's
 `server-timing` header comes off downloads and pings, uploads post the text `0` to
 `__up?bytes=N` and are timed to the answer, 429s are waited out and retried. A 403 (Cloudflare's
