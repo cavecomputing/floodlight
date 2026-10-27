@@ -1,13 +1,15 @@
 //! Entry point: reads the command line, picks the feature, and opens its screen (or prints its
-//! table when asked for plain output).
+//! table when asked for plain output, or writes its report).
 
 mod brand;
 mod os;
+mod report;
 mod scan;
 mod ui;
 mod wifi;
 
 use clap::{ArgGroup, Parser};
+use std::path::PathBuf;
 
 /// Looks at the network around this machine. Pick a feature with its flag.
 #[derive(Parser)]
@@ -34,18 +36,27 @@ struct Args {
     /// Print only the hosts matching this ip, mac, maker or name fragment, then exit.
     #[arg(long, value_name = "QUERY", conflicts_with = "wireless")]
     find: Option<String>,
+    /// Write the sweep or survey as a PDF report to this file, then exit.
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["plain", "live"])]
+    report: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let runtime = tokio::runtime::Runtime::new()?;
     if args.wireless {
+        if let Some(path) = &args.report {
+            return report::wireless::write(&runtime, path);
+        }
         if args.plain {
             return ui::plain::wireless(&runtime);
         }
         return ui::wireless::run(&runtime, os::settings::load(), args.live);
     }
     let subnet = scan::subnet::choose(args.subnet.as_deref())?;
+    if let Some(path) = &args.report {
+        return report::sweep::write(&runtime, subnet, args.find.as_deref(), path);
+    }
     if args.plain || args.find.is_some() {
         return ui::plain::run(&runtime, subnet, args.find.as_deref());
     }

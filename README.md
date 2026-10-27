@@ -18,6 +18,7 @@ Each feature has its own flag. `floodlight` on its own prints the help that list
 |---|---|
 | [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
 | [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
+| [`--report FILE`](#--report) | either of them written as a PDF to hand a client or a manager |
 
 It needs no root, uses the tools your OS already has, and runs on Linux, macOS and Windows.
 
@@ -54,6 +55,7 @@ floodlight --sweep                  # the subnet this machine is on
 floodlight --sweep 192.168.1.0/24   # a subnet, or an address for its /24
 floodlight --sweep --plain          # print the table and exit
 floodlight --sweep --find 3d:57     # print only the matching rows
+floodlight --sweep --report lan.pdf # write it as a PDF report (see --report)
 ```
 
 On screen: type to filter (an address fragment, a MAC with or without separators, a maker, a
@@ -83,6 +85,7 @@ overlap. The top line names the quietest channel in each band.
 floodlight --wireless           # the screen; ^r scans again
 floodlight --wireless --plain   # print the table and exit
 floodlight --wireless --live    # keep scanning, for walking around
+floodlight --wireless --report wifi.pdf   # write it as a PDF report
 ```
 
 `--live` scans again as soon as each scan is in and adds a trend column: the dBm each access
@@ -98,6 +101,22 @@ the first run asks to allow it Location (it never reads where you are, it's just
 macOS ties names to). If you said no, allow `Floodlight WiFi` under System Settings › Privacy &
 Security › Location Services. A width the OS doesn't report (nmcli, netsh) shows `—` and counts
 as 20 MHz. Recent Windows may refuse to list networks until the terminal has location access.
+
+## --report
+
+Add `--report FILE` to `--sweep` or `--wireless` to run one sweep or survey, write it to `FILE` as
+a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
+a header with the date and the key numbers, a summary in plain sentences, then the table.
+
+- The sweep's report: the subnet, how many addresses answered, how many devices have a known
+  maker or a randomized MAC, and every device's address, MAC, maker, name and ping. `--find`
+  narrows the table the same way it narrows `--plain`.
+- The survey's report: the network this machine is on and how crowded its channel is, the
+  quietest channel in each band, a chart of each band (a lane per network over the slice of
+  spectrum it fills, the quietest channel marked), and every network in a table.
+
+The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
+anywhere.
 
 ## Building from a clone
 

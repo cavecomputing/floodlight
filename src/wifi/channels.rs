@@ -50,7 +50,7 @@ impl Band {
 
     /// Where a new access point could go: the three 2.4 GHz channels that don't overlap each
     /// other, and every 20 MHz channel at 5 and 6 GHz.
-    fn candidates(self) -> Vec<u32> {
+    pub fn candidates(self) -> Vec<u32> {
         match self {
             Band::Ghz2 => vec![1, 6, 11],
             Band::Ghz5 => twenty_mhz_5ghz().collect(),

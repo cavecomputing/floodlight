@@ -2,7 +2,7 @@
 //! come in, makers and names filled in. The screen hears about it through `Event`s.
 
 use super::arp;
-use super::hosts::Vendor;
+use super::hosts::{Hosts, Vendor};
 use super::mdns;
 use super::ping;
 use super::vendor::Vendors;
@@ -54,6 +54,23 @@ pub fn start(runtime: &Runtime, net: Ipv4Net) -> UnboundedReceiver<Event> {
     let (tx, rx) = unbounded_channel();
     runtime.spawn(run(net, tx));
     rx
+}
+
+/// Runs a whole sweep and hands back the table once the last answer is in, for the outputs that
+/// print rather than show it.
+pub fn finished(runtime: &Runtime, net: Ipv4Net) -> Hosts {
+    let mut events = start(runtime, net);
+    let mut hosts = Hosts::new(net.hosts().count());
+    runtime.block_on(async {
+        while let Some(event) = events.recv().await {
+            let done = matches!(event, Event::Done { .. });
+            hosts.apply(event);
+            if done {
+                break;
+            }
+        }
+    });
+    hosts
 }
 
 async fn run(net: Ipv4Net, tx: UnboundedSender<Event>) {

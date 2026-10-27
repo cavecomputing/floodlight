@@ -1,27 +1,17 @@
 //! The tables printed to stdout for `--plain` and `--find`: the same sweep or survey, no screen,
 //! so it works in a pipe or a script.
 
-use crate::scan::hosts::{Hosts, Query, Vendor};
+use crate::scan::hosts::{Host, Query, Vendor};
 use crate::scan::subnet::Subnet;
-use crate::scan::sweep::{self, Event};
+use crate::scan::sweep;
 use crate::ui::wireless;
-use crate::wifi::channels::{self, Band};
-use crate::wifi::survey;
+use crate::wifi::channels::{self, Band, Crowd};
+use crate::wifi::survey::{self, Network};
+use std::net::Ipv4Addr;
 use tokio::runtime::Runtime;
 
 pub fn run(runtime: &Runtime, subnet: Subnet, find: Option<&str>) -> anyhow::Result<()> {
-    let mut events = sweep::start(runtime, subnet.net);
-    let mut hosts = Hosts::new(subnet.net.hosts().count());
-    runtime.block_on(async {
-        while let Some(event) = events.recv().await {
-            let done = matches!(event, Event::Done { .. });
-            hosts.apply(event);
-            if done {
-                break;
-            }
-        }
-    });
-
+    let hosts = sweep::finished(runtime, subnet.net);
     let query = Query::new(find.unwrap_or(""));
     let shown: Vec<_> = hosts
         .rows
@@ -43,27 +33,35 @@ pub fn run(runtime: &Runtime, subnet: Subnet, find: Option<&str>) -> anyhow::Res
         "ip", "mac", "maker", "name"
     );
     for host in shown {
-        let mac = host.mac.as_deref().unwrap_or("—");
-        let vendor = match &host.vendor {
-            Vendor::Known(name) => name.as_str(),
-            Vendor::Randomized => "randomized",
-            Vendor::Unknown => "—",
-        };
-        let name = match &host.name {
-            Some(name) => name.as_str(),
-            None if subnet.own == Some(host.ip) => "this machine",
-            None => "—",
-        };
-        let ping = match host.latency_ms {
-            Some(ms) => format!("{ms:.1} ms"),
-            None => "no reply".to_string(),
-        };
-        println!(
-            "{:<15}  {:<17}  {:<30}  {:<30}  {}",
-            host.ip, mac, vendor, name, ping
-        );
+        let [ip, mac, vendor, name, ping] = host_words(host, subnet.own);
+        println!("{ip:<15}  {mac:<17}  {vendor:<30}  {name:<30}  {ping}");
     }
     Ok(())
+}
+
+/// A host's address, MAC, maker, name and ping as the printed tables write them.
+pub fn host_words(host: &Host, own: Option<Ipv4Addr>) -> [String; 5] {
+    let vendor = match &host.vendor {
+        Vendor::Known(name) => name.as_str(),
+        Vendor::Randomized => "randomized",
+        Vendor::Unknown => "—",
+    };
+    let name = match &host.name {
+        Some(name) => name.as_str(),
+        None if own == Some(host.ip) => "this machine",
+        None => "—",
+    };
+    let ping = match host.latency_ms {
+        Some(ms) => format!("{ms:.1} ms"),
+        None => "no reply".to_string(),
+    };
+    [
+        host.ip.to_string(),
+        host.mac.clone().unwrap_or_else(|| "—".to_string()),
+        vendor.to_string(),
+        name.to_string(),
+        ping,
+    ]
 }
 
 pub fn wireless(runtime: &Runtime) -> anyhow::Result<()> {
@@ -80,21 +78,29 @@ pub fn wireless(runtime: &Runtime) -> anyhow::Result<()> {
         "ssid", "ch", "band", "width", "signal", "neighbours", "air"
     );
     for (network, crowd) in networks.iter().zip(channels::crowds(&networks)) {
-        let mut ssid = network.ssid.clone().unwrap_or_else(|| "hidden".to_string());
-        if network.connected {
-            ssid.push_str(" · joined");
-        }
+        let [ssid, channel, band, width, signal, neighbours, bssid] = network_words(network, crowd);
+        let air = channels::strip(network.freq_mhz, network.width_mhz);
         println!(
-            "{:<24}  {:>3}  {:<7}  {:<7}  {:<7}  {:<18}  {:<30}  {}",
-            ssid,
-            channels::channel(network.freq_mhz),
-            Band::of(network.freq_mhz).name(),
-            wireless::width(network),
-            format!("{} dBm", network.signal_dbm),
-            crowd.words(),
-            channels::strip(network.freq_mhz, network.width_mhz),
-            network.bssid.as_deref().unwrap_or("—"),
+            "{ssid:<24}  {channel:>3}  {band:<7}  {width:<7}  {signal:<7}  {neighbours:<18}  {air:<30}  {bssid}"
         );
     }
     Ok(())
+}
+
+/// A network's name, channel, band, width, signal, neighbours and BSSID as the printed tables
+/// write them.
+pub fn network_words(network: &Network, crowd: Crowd) -> [String; 7] {
+    let mut ssid = network.ssid.clone().unwrap_or_else(|| "hidden".to_string());
+    if network.connected {
+        ssid.push_str(" · joined");
+    }
+    [
+        ssid,
+        channels::channel(network.freq_mhz).to_string(),
+        Band::of(network.freq_mhz).name().to_string(),
+        wireless::width(network),
+        format!("{} dBm", network.signal_dbm),
+        crowd.words(),
+        network.bssid.clone().unwrap_or_else(|| "—".to_string()),
+    ]
 }

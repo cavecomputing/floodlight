@@ -123,6 +123,7 @@ cargo run -- --sweep --plain           # print the table and exit (for pipes, sc
 cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac, maker or name fragment
 cargo run -- --wireless                # the WiFi networks heard here and how their channels overlap
 cargo run -- --wireless --plain        # the same as a table on stdout
+cargo run -- --sweep --report out.pdf  # one sweep written as a PDF report, then exit (--wireless too)
 cargo run -- --wireless --live         # keep scanning, with each access point's signal trend
 
 cargo test                        # run every test
@@ -170,6 +171,12 @@ Each feature is a flag, and the command alone prints the help listing them.
 `--sweep`: `floodlight --sweep [subnet]` opens the screen, starts the sweep in the
 background, and fills the table as answers come in. Ctrl+R sweeps again.
 
+`--report FILE`: with either feature, runs it once, writes `FILE` as a PDF and exits. The PDF is
+written by hand in `report/` (no crate): the built-in Helvetica and Courier, which every reader
+has, so nothing is embedded. It follows the design system's print documents (the light theme on a
+cream Letter page, yellow edges, small-capital headings, rounded tables) with **no branding**: no
+name or logo anywhere on it.
+
 `--wireless`: `floodlight --wireless` opens a screen of every network heard, asks the OS's own
 tool for the list once in the background, and fills in when it answers; Ctrl+R asks again.
 With `--live` it asks again a second after each answer, keeping the last rows up meanwhile, and
@@ -215,12 +222,17 @@ src/
   os/                    the OS outside the network
     settings.rs          settings.toml: load, defaults, atomic save
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
+  report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
+    pdf.rs               the PDF file format: pages, shapes, text in the built-in fonts and their widths
+    sheet.rs             the report's page: header card, summary, headings, tables, page breaks, footer
+    sweep.rs             the sweep's report: the summary sentences and the table of devices
+    wireless.rs          the survey's report: the summary, a channel chart per band, the networks
   ui/                    everything on screen
     theme.rs             Gruvbox palette roles as ratatui styles
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their crowds and strips, live or once
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
-    plain.rs             the tables printed to stdout for --plain and --find
+    plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```
 
 One file per concern, named for that concern. When a file passes a few hundred lines, or starts
