@@ -113,9 +113,9 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   narrows the table the same way it narrows `--plain`.
 - The survey's report scans for 8 seconds first and keeps every network heard in any scan, since
   weak ones often answer only the second or third time. It shows the network this machine is on
-  and how crowded its channel is, the
-  quietest channel in each band, a chart of each band (a lane per network over the slice of
-  spectrum it fills, the quietest channel marked), and every network in a table.
+  and how crowded its channel is, the quietest channel in each band, a chart of each band (a lane
+  per network over the slice of spectrum it fills, the quietest channel marked), and every network
+  in a table.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.
