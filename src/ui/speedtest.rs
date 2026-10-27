@@ -1,5 +1,6 @@
 //! The speed test's screen: a row a run, filling in as each is measured, the one being measured
-//! in the active colour. Same look as the other screens, without the prompt or a moving band.
+//! in the active colour, and with `--count`, a graph each of download, upload and latency across
+//! the runs. Same look as the other screens, without the prompt or a moving band.
 
 use crate::speedtest::runs::{self, Event, Phase, Run, Runs};
 use crate::ui::status_bar;
@@ -20,6 +21,10 @@ use tokio::sync::mpsc::UnboundedReceiver;
 const TICK: Duration = Duration::from_millis(50);
 const PULSE: Duration = Duration::from_millis(600);
 const HINTS: [&str; 2] = ["^r test again", "^c quit"];
+/// Rows a graph plots in, under its title.
+const PLOT_ROWS: u16 = 6;
+/// Columns a graph's scale takes, left of its points.
+const SCALE: u16 = 7;
 
 pub fn run(runtime: &Runtime, count: u32, wait: Duration) -> anyhow::Result<()> {
     let mut screen = Screen {
@@ -99,7 +104,15 @@ impl Screen {
             )),
             inset(head),
         );
-        self.draw_table(frame, table, roles);
+        if self.asked > 1 {
+            let [table, graphs] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(PLOT_ROWS + 3)])
+                    .areas(table);
+            self.draw_table(frame, table, roles);
+            self.draw_graphs(frame, graphs, roles);
+        } else {
+            self.draw_table(frame, table, roles);
+        }
         status_bar::draw(frame, rule, bar, roles, self.state_line(roles), &HINTS);
     }
 
@@ -145,7 +158,13 @@ impl Screen {
     }
 
     fn draw_table(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
-        let rows: Vec<Row<'static>> = self.runs.runs.iter().map(|run| row(run, roles)).collect();
+        // The latest runs, when there are more than the rows can hold.
+        let room = area.height.saturating_sub(1) as usize;
+        let skipped = self.runs.runs.len().saturating_sub(room);
+        let rows: Vec<Row<'static>> = self.runs.runs[skipped..]
+            .iter()
+            .map(|run| row(run, roles))
+            .collect();
         let titles = ["time", "latency", "jitter", "download", "upload", "server"];
         let widths = [
             Constraint::Length(8),
@@ -169,6 +188,87 @@ impl Screen {
             frame.buffer_mut()[(area.x + INSET, area.y)]
                 .set_char('#')
                 .set_style(roles.comment());
+        }
+    }
+
+    /// Download, upload and latency side by side, each a graph of its runs.
+    fn draw_graphs(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
+        let [download, upload, latency] = Layout::horizontal([Constraint::Fill(1); 3])
+            .spacing(3)
+            .areas(inset(area));
+        let each = |result: fn(&Run) -> Option<f32>| -> Vec<Option<f32>> {
+            self.runs.runs.iter().map(result).collect()
+        };
+        graph(
+            frame,
+            download,
+            "download · Mbps",
+            &each(Run::download),
+            roles.good(),
+            roles,
+        );
+        graph(
+            frame,
+            upload,
+            "upload · Mbps",
+            &each(Run::upload),
+            roles.address(),
+            roles,
+        );
+        graph(
+            frame,
+            latency,
+            "latency · ms",
+            &each(Run::latency),
+            roles.text(),
+            roles,
+        );
+    }
+}
+
+/// One result across the runs: a `●` a run, two columns apart, as high as its value on a round
+/// scale, over a `─` baseline. A run that didn't measure it leaves a gap; the latest runs win
+/// when there are more than fit.
+fn graph(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    values: &[Option<f32>],
+    ink: Style,
+    roles: &Roles,
+) {
+    if area.height < PLOT_ROWS + 3 || area.width <= SCALE + 2 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Span::styled(format!("# {title}"), roles.comment())),
+        Rect {
+            y: area.y + 1,
+            height: 1,
+            ..area
+        },
+    );
+    let plot_width = area.width - SCALE;
+    let fit = plot_width.div_ceil(2) as usize;
+    let shown = &values[values.len().saturating_sub(fit)..];
+    let most = shown.iter().flatten().copied().fold(0.0, f32::max);
+    let top = runs::scale_top(most);
+    let (first, last) = (area.y + 2, area.y + 2 + PLOT_ROWS - 1);
+    let buffer = frame.buffer_mut();
+    buffer.set_string(area.x, first, format!("{top:>5}"), roles.comment());
+    buffer.set_string(area.x, last, format!("{:>5}", 0), roles.comment());
+    let baseline = "─".repeat(plot_width as usize);
+    buffer.set_string(
+        area.x + SCALE,
+        last,
+        baseline,
+        Style::new().fg(roles.border),
+    );
+    for (i, value) in shown.iter().enumerate() {
+        if let Some(value) = value {
+            let steps = (value / top * (PLOT_ROWS - 1) as f32).round() as u16;
+            let y = last - steps.min(PLOT_ROWS - 1);
+            buffer.set_string(area.x + SCALE + 2 * i as u16, y, "●", ink);
         }
     }
 }

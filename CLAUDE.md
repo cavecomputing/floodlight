@@ -249,7 +249,7 @@ src/
                          Gruvbox light for the printed report
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
-    speedtest.rs         the speed test screen: a row a run, the result being measured in yellow
+    speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```

@@ -163,6 +163,19 @@ fn percentile(values: &[f32], share: f32) -> Option<f32> {
     Some(sorted[(last as f32 * share).round() as usize])
 }
 
+/// The top of a chart's scale: 1, 2 or 5 times a power of ten, at or just above `most`.
+pub fn scale_top(most: f32) -> f32 {
+    if most <= 0.0 {
+        return 1.0;
+    }
+    let power = 10f32.powf(most.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .into_iter()
+        .map(|times| times * power)
+        .find(|top| *top >= most)
+        .unwrap_or(10.0 * power)
+}
+
 /// Starts `count` runs on the runtime, `wait` apart, and hands back the stream of results.
 pub fn start(runtime: &Runtime, count: u32, wait: Duration) -> UnboundedReceiver<Event> {
     let (tx, rx) = unbounded_channel();
@@ -258,6 +271,15 @@ mod tests {
         assert_eq!(percentile(&[3.0, 1.0, 2.0], 0.5), Some(2.0));
         let speeds: Vec<f32> = (1..=11).map(|n| n as f32 * 10.0).collect();
         assert_eq!(percentile(&speeds, 0.9), Some(100.0));
+    }
+
+    #[test]
+    fn rounds_the_top_of_a_scale_up() {
+        assert_eq!(scale_top(0.0), 1.0);
+        assert_eq!(scale_top(241.3), 500.0);
+        assert_eq!(scale_top(180.0), 200.0);
+        assert_eq!(scale_top(12.5), 20.0);
+        assert_eq!(scale_top(100.0), 100.0);
     }
 
     #[test]

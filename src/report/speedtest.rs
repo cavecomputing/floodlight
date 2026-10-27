@@ -179,7 +179,7 @@ fn chart(
     let (top, bottom) = (y + 16.0, y + CHART_HEIGHT - 26.0);
     let (left, right) = (x + SCALE, x + WIDTH - 24.0);
     let most = values.iter().flatten().copied().fold(0.0, f32::max);
-    let ceiling = scale_top(most);
+    let ceiling = runs::scale_top(most);
     for share in [0.0, 0.5, 1.0] {
         let line = bottom - share * (bottom - top);
         pdf.line((left, line), (right, line), 0.5, BORDER);
@@ -214,19 +214,6 @@ fn chart(
         }
     }
     sheet.y += CHART_HEIGHT + 4.0;
-}
-
-/// The top of a chart's scale: 1, 2 or 5 times a power of ten, at or just above `most`.
-fn scale_top(most: f32) -> f32 {
-    if most <= 0.0 {
-        return 1.0;
-    }
-    let power = 10f32.powf(most.log10().floor());
-    [1.0, 2.0, 5.0, 10.0]
-        .into_iter()
-        .map(|times| times * power)
-        .find(|top| *top >= most)
-        .unwrap_or(10.0 * power)
 }
 
 /// What the runs measured, in a sentence or three.
@@ -333,15 +320,6 @@ mod tests {
              1.5 ms from one to the next (the jitter). The run at 14:03:00 failed: cloudflare \
              answered 429."
         );
-    }
-
-    #[test]
-    fn rounds_the_top_of_a_scale_up() {
-        assert_eq!(scale_top(0.0), 1.0);
-        assert_eq!(scale_top(241.3), 500.0);
-        assert_eq!(scale_top(180.0), 200.0);
-        assert_eq!(scale_top(12.5), 20.0);
-        assert_eq!(scale_top(100.0), 100.0);
     }
 
     #[test]
