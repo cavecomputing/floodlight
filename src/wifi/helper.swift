@@ -33,17 +33,25 @@ func scan() -> Never {
     } catch {
         finish("error\t\(field(error.localizedDescription))\n")
     }
-    let joined = wifi.bssid()
+    // The joined access point, by BSSID where macOS gives both, else by name and channel (macOS
+    // can leave either BSSID out even with Location allowed).
+    let joinedBSSID = wifi.bssid()?.lowercased()
+    let joinedSSID = wifi.ssid()
+    let joinedChannel = wifi.wlanChannel()?.channelNumber
     var lines = ""
     for network in networks {
         guard let channel = network.wlanChannel else { continue }
         // The raw values of CWChannelBand and CWChannelWidth, which are stable across SDKs.
         let band = [1: 2, 2: 5, 3: 6][channel.channelBand.rawValue] ?? 0
         let width = [1: 20, 2: 40, 3: 80, 4: 160][channel.channelWidth.rawValue] ?? 0
-        let bssid = network.bssid ?? ""
+        let bssid = network.bssid?.lowercased() ?? ""
+        let joined = !bssid.isEmpty && joinedBSSID != nil
+            ? bssid == joinedBSSID
+            : network.ssid != nil && network.ssid == joinedSSID
+                && channel.channelNumber == joinedChannel
         let fields = [
             field(network.ssid ?? ""), bssid, "\(channel.channelNumber)", "\(band)", "\(width)",
-            "\(network.rssiValue)", !bssid.isEmpty && bssid == joined ? "joined" : "",
+            "\(network.rssiValue)", joined ? "joined" : "",
         ]
         lines += fields.joined(separator: "\t") + "\n"
     }
