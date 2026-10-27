@@ -57,19 +57,18 @@ const COLUMNS: [Column; 7] = [
     },
 ];
 
-/// How long the report keeps scanning before it writes: weak networks often turn up only in the
-/// second or third scan.
-const LISTEN: Duration = Duration::from_secs(8);
 /// Lanes in one band's chart; quieter networks past this are left out (the table has them all).
 const MOST_LANES: usize = 48;
 const LANE: f32 = 10.0;
 /// The chart's left column, where the network names go.
 const NAMES: f32 = 130.0;
 
-pub fn write(runtime: &Runtime, path: &Path) -> anyhow::Result<()> {
-    println!("scanning for {} s", LISTEN.as_secs());
+/// Scans for `seconds` (weak networks often turn up only in the second or third scan), then
+/// writes the report.
+pub fn write(runtime: &Runtime, path: &Path, seconds: u64) -> anyhow::Result<()> {
+    println!("scanning for {seconds} s");
     let networks = runtime
-        .block_on(survey::survey_for(LISTEN))
+        .block_on(survey::survey_for(Duration::from_secs(seconds)))
         .map_err(anyhow::Error::msg)?;
     std::fs::write(path, document(&networks))?;
     println!("wrote {}", path.display());

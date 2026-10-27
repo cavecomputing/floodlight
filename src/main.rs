@@ -39,6 +39,16 @@ struct Args {
     /// Write the sweep or survey as a PDF report to this file, then exit.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["plain", "live"])]
     report: Option<PathBuf>,
+    /// With --wireless --report: how many seconds to keep scanning before writing, so weak
+    /// networks that answer late make the report.
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        default_value_t = 10,
+        requires = "report",
+        conflicts_with = "sweep"
+    )]
+    scan_for: u64,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -46,7 +56,7 @@ fn main() -> anyhow::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     if args.wireless {
         if let Some(path) = &args.report {
-            return report::wireless::write(&runtime, path);
+            return report::wireless::write(&runtime, path, args.scan_for);
         }
         if args.plain {
             return ui::plain::wireless(&runtime);
