@@ -90,9 +90,9 @@ floodlight --wireless --report wifi.pdf   # write it as a PDF report
 The screen keeps scanning, a second after each scan is in, so you can walk around with it. Every
 access point heard stays on the list in a steady order (dimmed as `gone` while out of range), and
 a trend column shows the dBm each gained or lost since the scan before and the strongest it has
-been. Walk towards a rogue access point and its number climbs. **tab** switches between channel order and
-loudest first; the signal order is taken when you switch to it and then holds still (anything
-new joins the bottom), so press tab twice to rank again. **^r** forgets it all and starts over,
+been. Walk towards a rogue access point and its number climbs. **tab** cycles the order: by channel, loudest
+first, then by name. The signal order is taken when you switch to it and then holds still
+(anything new joins the bottom); cycle round to it again to re-rank. **^r** forgets it all and starts over,
 for a new spot. How fresh each scan is depends on the OS: iwd and macOS scan every time; NetworkManager
 and Windows may refuse a new scan within a few seconds of the last and repeat it.
 

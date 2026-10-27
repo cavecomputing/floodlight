@@ -180,7 +180,7 @@ name or logo anywhere on it.
 `--wireless`: `floodlight --wireless` opens a screen of every network heard and keeps asking the
 OS's own tool for the list in the background, a second after each answer, keeping the rows up
 meanwhile; `wifi/trend.rs` keeps every access point heard and tracks its signal across scans.
-Tab switches between channel order and signal order (ranked once when chosen, so rows hold still);
+Tab cycles channel, signal (ranked once when chosen, so rows hold still) and name order;
 Ctrl+R forgets them and starts over. `--plain` prints one scan.
 
 There is no daemon and no state between runs.

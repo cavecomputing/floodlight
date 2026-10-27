@@ -64,13 +64,16 @@ pub enum Sort {
     Channel,
     /// Loudest first, as ranked when chosen (see `sort`).
     Signal,
+    /// By network name, hidden ones last.
+    Name,
 }
 
 impl Sort {
     pub fn next(self) -> Sort {
         match self {
             Sort::Channel => Sort::Signal,
-            Sort::Signal => Sort::Channel,
+            Sort::Signal => Sort::Name,
+            Sort::Name => Sort::Channel,
         }
     }
 
@@ -78,6 +81,7 @@ impl Sort {
         match self {
             Sort::Channel => "channel",
             Sort::Signal => "signal",
+            Sort::Name => "name",
         }
     }
 }
@@ -101,6 +105,10 @@ pub fn sort(networks: &mut [(Network, Reading)], sort: Sort, ranks: &HashMap<Str
         Sort::Channel => {}
         Sort::Signal => networks
             .sort_by_key(|(network, _)| ranks.get(&key(network)).copied().unwrap_or(usize::MAX)),
+        Sort::Name => networks.sort_by_key(|(network, _)| match &network.ssid {
+            Some(name) => (false, name.to_lowercase()),
+            None => (true, String::new()),
+        }),
     }
 }
 
@@ -155,6 +163,27 @@ mod tests {
                 "aa:bb:cc:00:00:00"
             ]
         );
+    }
+
+    #[test]
+    fn sorts_by_name_with_hidden_ones_last() {
+        let mut trend = Trend::default();
+        let named = |ssid: Option<&str>, bssid: &str| Network {
+            ssid: ssid.map(String::from),
+            ..heard(bssid, -60)
+        };
+        trend.record(&[
+            named(None, "aa:bb:cc:00:00:01"),
+            named(Some("cafe"), "aa:bb:cc:00:00:02"),
+            named(Some("Attic"), "aa:bb:cc:00:00:03"),
+        ]);
+        let mut networks = trend.networks();
+        sort(&mut networks, Sort::Name, &HashMap::new());
+        let names: Vec<Option<&str>> = networks
+            .iter()
+            .map(|(network, _)| network.ssid.as_deref())
+            .collect();
+        assert_eq!(names, [Some("Attic"), Some("cafe"), None]);
     }
 
     #[test]
