@@ -182,12 +182,17 @@ pub fn scale_top(most: f32) -> f32 {
     if most <= 0.0 {
         return 1.0;
     }
-    let power = 10f32.powf(most.log10().floor());
+    // Divided below 1 rather than multiplied, so the label reads 0.05 and not 0.049999997.
+    let power = most.log10().floor() as i32;
+    let times_power = |times: f32| match power {
+        0.. => times * 10f32.powi(power),
+        _ => times / 10f32.powi(-power),
+    };
     [1.0, 2.0, 5.0, 10.0]
         .into_iter()
-        .map(|times| times * power)
+        .map(times_power)
         .find(|top| *top >= most)
-        .unwrap_or(10.0 * power)
+        .unwrap_or(times_power(10.0))
 }
 
 /// Starts `count` runs, `wait` apart, on a thread of their own, and hands back the stream of
@@ -338,6 +343,9 @@ mod tests {
         assert_eq!(scale_top(180.0), 200.0);
         assert_eq!(scale_top(12.5), 20.0);
         assert_eq!(scale_top(100.0), 100.0);
+        // Loopback pings: the label has to print as written.
+        assert_eq!(scale_top(0.03).to_string(), "0.05");
+        assert_eq!(scale_top(0.004).to_string(), "0.005");
     }
 
     #[test]
