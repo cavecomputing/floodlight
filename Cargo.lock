@@ -597,6 +597,7 @@ dependencies = [
  "ipnet",
  "ratatui",
  "regex",
+ "socket2",
  "tokio",
  "ureq",
  "windows-sys 0.61.2",

@@ -85,8 +85,7 @@ impl Run {
 
     /// How much one round trip differs from the next, on average, in ms.
     pub fn jitter(&self) -> Option<f32> {
-        let steps: Vec<f32> = self.pings.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
-        (!steps.is_empty()).then(|| steps.iter().sum::<f32>() / steps.len() as f32)
+        jitter(&self.pings)
     }
 
     /// The 90th percentile of the transfers, as Cloudflare reports it: the speed the link
@@ -155,6 +154,16 @@ impl Runs {
     pub fn server(&self) -> Option<&Server> {
         self.runs.iter().rev().find_map(|run| run.server.as_ref())
     }
+}
+
+/// How much one round trip differs from the next, on average: the average step between
+/// neighbours. `--ping` measures it the same way.
+pub fn jitter(round_trips: &[f32]) -> Option<f32> {
+    let steps: Vec<f32> = round_trips
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .collect();
+    (!steps.is_empty()).then(|| steps.iter().sum::<f32>() / steps.len() as f32)
 }
 
 /// The value `share` of the way up the sorted values (0.5 is the median).

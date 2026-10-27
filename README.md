@@ -11,7 +11,8 @@ Floodlight is a small terminal tool that looks at the network this machine is on
 device on your subnet, with its MAC, maker and name, so the camera or switch you just plugged in
 turns up by the MAC on its label. And it lists the WiFi networks around you and how their channels
 crowd each other, so you can pick the quietest one. And it tests the internet connection's
-download, upload, latency and jitter against Cloudflare.
+download, upload, latency and jitter against Cloudflare. And it pings a host over and over,
+graphing every round trip and counting the ones lost.
 
 Each feature has its own flag. `floodlight` on its own prints the help that lists them.
 
@@ -20,6 +21,7 @@ Each feature has its own flag. `floodlight` on its own prints the help that list
 | [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
 | [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
 | [`--speedtest`](#--speedtest) | download, upload, latency and jitter, once or `--count` times |
+| [`--ping`](#--ping) | a host pinged over and over: every round trip, the ones lost, min, average, max and jitter |
 | [`--report FILE`](#--report) | any of them written as a PDF to hand a client or a manager |
 
 It needs no root, uses the tools your OS already has, and runs on Linux, macOS and Windows.
@@ -136,9 +138,44 @@ under the table, so a line that slows down over the afternoon shows as a falling
 It talks to Cloudflare over HTTPS by itself, so nothing needs installing. A test moves a few
 hundred megabytes on a fast line.
 
+## --ping
+
+Pings a host over and over and shows every reply as it comes back, the ones lost (and why:
+`timed out`, `unreachable`), and the totals so far: sent, back, lost, and the minimum, average and
+maximum round trip with the jitter (how much one differs from the next). A graph along the bottom
+plots each round trip, a gap where one was lost, so a link that drops out or slows down shows at a
+glance. With no host it pings this machine's gateway (its router).
+
+```
+  # ping gateway (192.168.1.1) · until stopped · 500 ms apart
+  # 42 sent · 41 back · 1 lost (2.4%) · min 0.61 · avg 1.12 · max 4.80 · jitter 0.35 ms
+
+  # seq     time      latency
+    40      14:05:29  0.98 ms
+    41      14:05:30  timed out
+    42      14:05:32  1.04 ms
+```
+
+```bash
+floodlight --ping                       # the gateway, until you quit; ^r starts over
+floodlight --ping 1.1.1.1               # a host by address or by name
+floodlight --ping 1.1.1.1 --count 100   # a hundred pings, then stop (0 means until you quit)
+floodlight --ping --wait 1000           # a second between pings (500 ms by default)
+floodlight --ping 1.1.1.1 --count 20 --plain       # print each ping as it comes back, then the totals
+floodlight --ping 1.1.1.1 --count 50 --report ping.pdf   # write them as a PDF report
+```
+
+`--wait` is in milliseconds here (in seconds for `--speedtest`), counted from one reply, or a
+reply given up on after 2 seconds, to the next ping. Each round trip is timed to a fraction of a
+millisecond on every OS (Windows' own `ping` only counts whole ones). IPv4 only for now.
+
+No root and no Administrator: it uses the ping socket Linux and macOS give ordinary programs and
+Windows' own ping call. Most Linux systems allow that socket out of the box (systemd turns it on);
+if yours doesn't, Floodlight says so and gives the one `sysctl` line that allows it.
+
 ## --report
 
-Add `--report FILE` to `--sweep`, `--wireless` or `--speedtest` to run it, write it to `FILE` as
+Add `--report FILE` to `--sweep`, `--wireless`, `--speedtest` or `--ping` to run it, write it to `FILE` as
 a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
@@ -154,6 +191,9 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   download and upload, then the latency, jitter, the Cloudflare data center and the internet
   provider, a summary of the range across runs, a chart each of download, upload and latency
   across the runs (when there are several) to show the trend, and every run in a table.
+- The ping report pings `--count` times (10 unless told; it needs an end, so not 0) and leads
+  with the average round trip and the share lost, then the minimum, maximum and jitter, a summary
+  that names the pings lost, a chart of every round trip, and every ping in a table.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.

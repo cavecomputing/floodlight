@@ -1,6 +1,9 @@
-//! The tables printed to stdout for `--plain` and `--find`: the same sweep or survey, no screen,
+//! The tables printed to stdout for `--plain` and `--find`: the same sweep, survey, speed test or
+//! pings, no screen,
 //! so it works in a pipe or a script.
 
+use crate::ping::pings::{self, Ping, Pings};
+use crate::ping::target::Target;
 use crate::scan::hosts::{Host, Query, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep;
@@ -142,4 +145,65 @@ pub fn run_words(run: &Run) -> [String; 6] {
         mbps(run.upload()),
         server,
     ]
+}
+
+/// Prints each ping as it comes back, then the totals once the last is in (with `count` 0, it
+/// pings until stopped, like the OS's own ping).
+pub fn ping(target: &Target, count: u32, wait: Duration) -> anyhow::Result<()> {
+    let events = pings::start(target.ip, count, wait).map_err(anyhow::Error::msg)?;
+    println!("# {}", ping_headline(target, count, wait));
+    println!("{:>5}  {:<8}  latency", "seq", "time");
+    let mut pings = Pings::default();
+    for ping in events {
+        let [seq, time, latency] = ping_words(&ping);
+        println!("{seq:>5}  {time:<8}  {latency}");
+        pings.pings.push(ping);
+    }
+    println!("# {}", ping_totals(&pings));
+    Ok(())
+}
+
+/// `ping gateway (192.168.1.1) · 10 pings · 500 ms apart`
+pub fn ping_headline(target: &Target, count: u32, wait: Duration) -> String {
+    let pings = match count {
+        0 => "until stopped".to_string(),
+        1 => "1 ping".to_string(),
+        count => format!("{count} pings"),
+    };
+    format!(
+        "ping {} · {pings} · {} ms apart",
+        target.label(),
+        wait.as_millis()
+    )
+}
+
+/// A ping's number, time and round trip (or why nothing came back) as the printed tables write
+/// them.
+pub fn ping_words(ping: &Ping) -> [String; 3] {
+    let latency = match &ping.reply {
+        Ok(ms) => format!("{ms:.2} ms"),
+        Err(why) => why.clone(),
+    };
+    [ping.seq.to_string(), ping.time.clone(), latency]
+}
+
+/// `10 sent · 9 back · 1 lost (10.0%) · min 0.41 · avg 1.10 · max 3.20 · jitter 0.30 ms`
+pub fn ping_totals(pings: &Pings) -> String {
+    let lost = pings.lost();
+    let mut words = format!(
+        "{} sent · {} back · {lost} lost ({:.1}%)",
+        pings.pings.len(),
+        pings.pings.len() - lost,
+        pings.loss()
+    );
+    if let (Some(min), Some(average), Some(max)) = (pings.min(), pings.average(), pings.max()) {
+        words.push_str(&format!(
+            " · min {min:.2} · avg {average:.2} · max {max:.2}"
+        ));
+        match pings.jitter() {
+            Some(jitter) => words.push_str(&format!(" · jitter {jitter:.2} ms")),
+            None => words.push_str(" ms"),
+        }
+    }
+    words
 }

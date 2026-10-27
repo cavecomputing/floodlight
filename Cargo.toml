@@ -30,9 +30,20 @@ tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync"
 # what Cloudflare sets, as a browser and other speed test clients do; uploads were refused without.
 ureq = { version = "3", default-features = false, features = ["rustls", "cookies"] }
 
+[target.'cfg(unix)'.dependencies]
+# The ICMP datagram socket --ping sends through, which needs no root and std can't open. Already
+# built for tokio, so it costs nothing.
+socket2 = "0.6"
+
 [target.'cfg(windows)'.dependencies]
 # Windows' own wifi service (wlanapi): ask it to scan and read what it heard, which netsh can't.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_WiFi"] }
+# Its ping call and route table (iphlpapi) for --ping: no Administrator needed, unlike a socket.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_WiFi",
+    "Win32_Networking_WinSock",
+] }
 
 [profile.release]
 strip = true

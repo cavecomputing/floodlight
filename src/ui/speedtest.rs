@@ -21,7 +21,7 @@ const TICK: Duration = Duration::from_millis(50);
 const PULSE: Duration = Duration::from_millis(600);
 const HINTS: [&str; 2] = ["^r test again", "^c quit"];
 /// Rows a graph plots in, under its title.
-const PLOT_ROWS: u16 = 6;
+pub const PLOT_ROWS: u16 = 6;
 /// Columns a graph's scale takes, left of its points.
 const SCALE: u16 = 7;
 
@@ -226,8 +226,8 @@ impl Screen {
 
 /// One result across the runs: a `●` a run, two columns apart, as high as its value on a round
 /// scale, over a `─` baseline. A run that didn't measure it leaves a gap; the latest runs win
-/// when there are more than fit.
-fn graph(
+/// when there are more than fit. The ping screen draws its graph the same way.
+pub fn graph(
     frame: &mut Frame,
     area: Rect,
     title: &str,

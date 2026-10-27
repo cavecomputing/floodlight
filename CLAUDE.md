@@ -7,7 +7,8 @@ sweeps a subnet and shows every address that answered with its MAC, maker and na
 that filters the rows as you type, so a camera or switch you just plugged in is found by the MAC
 on its label (or the other way round). `--wireless` lists the WiFi networks in earshot and how
 their channels overlap. `--speedtest` measures the internet connection's download, upload, latency
-and jitter against Cloudflare. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+and jitter against Cloudflare. `--ping` pings a host (the gateway by default) over and over,
+graphing every round trip and counting the ones lost. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -125,6 +126,8 @@ cargo run -- --wireless                # the WiFi networks heard here and how th
 cargo run -- --wireless --plain        # the same as a table on stdout
 cargo run -- --speedtest               # download, upload, latency and jitter against Cloudflare
 cargo run -- --speedtest --count 3 --wait 10 --plain  # three runs, 10 s apart, printed
+cargo run -- --ping                    # ping the gateway until you quit (--count 0, the default)
+cargo run -- --ping 1.1.1.1 --count 20 --wait 250 --plain  # twenty pings, 250 ms apart, printed
 cargo run -- --sweep --report out.pdf  # one sweep written as a PDF report, then exit (--wireless too)
 cargo run -- --wireless --report out.pdf --scan-for 20  # scan 20 s before writing (default 10)
 
@@ -197,6 +200,16 @@ that direction keeps what it measured and the run fails only when it had measure
 through the ureq crate on a thread of its own, one kept-open connection, cookies kept, no gzip.
 `--count N` runs it N times, `--wait SECONDS` apart (5 by default); Ctrl+R runs the same again once it is done.
 
+`--ping [HOST]`: pings HOST (a name or an IPv4 address; the gateway from the OS's route table when
+none is given) on a thread of its own, one echo at a time: up to 2 s for the reply, then `--wait`
+**milliseconds** (500 by default; the same flag is seconds for `--speedtest`) before the next.
+`--count N` stops after N; 0, the default, pings until you quit, and `--report` (which needs an
+end) takes 10 unless told. No root and no Administrator: Linux and macOS send through an ICMP
+datagram socket (socket2), which Linux allows when `net.ipv4.ping_group_range` covers the user
+(systemd sets it so); Windows uses its own `IcmpSendEcho` (windows-sys). Every round trip is
+timed with `Instant` around the send and the reply, since Windows only reports whole
+milliseconds. Ctrl+R forgets the pings and starts over.
+
 There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -206,7 +219,7 @@ and only ever talks to the screen through `Event`s.
 ### Folder layout
 
 The code is split by *what it knows about*. The rule that keeps it organised: **`scan/`, `wifi/`,
-`speedtest/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
+`speedtest/`, `ping/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
 key wiring.
 
 ```
@@ -239,6 +252,11 @@ src/
     cloudflare.rs        speed.cloudflare.com through ureq: the transfers and their timings, the data center
     runs.rs              the runs: the sizes, the Event enum the screen hears, latency, jitter and
                          the 90th percentile speeds
+  ping/                  pinging one host, no UI
+    target.rs            what to ping: the name or address typed, or the gateway from the route table
+    echo.rs              one ICMP echo, timed: the ping socket on Linux and macOS, IcmpSendEcho on Windows
+    pings.rs             the pings on their thread, --count and --wait, the totals (lost, min,
+                         average, max, jitter)
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
@@ -247,12 +265,14 @@ src/
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
     speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
+    ping.rs              the ping report: the average and loss, the summary, a chart of every ping, a row a ping
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
+    ping.rs              the ping screen: the totals, a row a ping, a graph of the round trips
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```
@@ -286,7 +306,8 @@ at the bottom of the file they test.
 - **Startup is near-instant and the screen never waits for the network.** The first frame draws
   before anything has answered; rows fill in. The maker registry is parsed inside the sweep task,
   not on the screen's thread. Dropping the sweep's receiver (Ctrl+R) ends the old sweep quietly.
-- **No privileges.** Hosts are found with the system `ping` plus a one-byte UDP datagram to the
+- **No privileges.** `--ping` uses the unprivileged ICMP datagram socket (Linux, macOS) and
+  `IcmpSendEcho` (Windows), never a raw socket. Hosts are found with the system `ping` plus a one-byte UDP datagram to the
   discard port (which makes the OS resolve the MAC even for hosts that ignore pings), and the MACs
   come from the OS's ARP table. Nothing opens a raw socket, so nothing needs root or setcap.
 - **Names come from the host itself first.** Reverse DNS on a home or office LAN rarely knows a

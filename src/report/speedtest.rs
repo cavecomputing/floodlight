@@ -160,8 +160,8 @@ const SCALE: f32 = 64.0;
 
 /// One result across the runs as a line in a card: a point a run, joined to the next, with the
 /// scale on the left and the runs' times along the bottom. A run that didn't measure it leaves a
-/// gap.
-fn chart(
+/// gap. The ping report draws its chart the same way.
+pub(super) fn chart(
     sheet: &mut Sheet,
     title: &str,
     times: &[&str],
