@@ -9,6 +9,7 @@ use crate::brand;
 use crate::scan::hosts::{normalize_mac, printable};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// The helper's program, compiled from helper.swift by build.rs. Other OSes don't use it.
@@ -20,6 +21,9 @@ const HELPER: &[u8] = &[];
 /// How long a fresh scan (iwd's, or Windows' through `WINDOWS_SCAN`) gets to finish. Windows
 /// drivers have four seconds.
 const SCAN_WAIT: Duration = Duration::from_secs(4);
+
+/// Set while a Windows scan asked for in the background hasn't had its time yet.
+static WINDOWS_SCANNING: AtomicBool = AtomicBool::new(false);
 
 /// Asks Windows to scan every wifi card. netsh can only list what Windows last scanned, and while
 /// joined to a network it rarely scans, so its list can hold the joined access point alone.
@@ -80,9 +84,16 @@ pub async fn survey() -> Result<Vec<Network>, String> {
     let mut networks = if cfg!(target_os = "macos") {
         macos().await?
     } else if cfg!(windows) {
-        let scan = ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCAN];
-        if output("powershell", &scan).await.is_some() {
-            tokio::time::sleep(SCAN_WAIT).await;
+        // Ask for the next scan in the background and list what the last one found, so the
+        // list never waits on a scan; one at a time, since each asks PowerShell to compile C#.
+        if !WINDOWS_SCANNING.swap(true, Ordering::Relaxed) {
+            tokio::spawn(async {
+                let scan = ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCAN];
+                if output("powershell", &scan).await.is_some() {
+                    tokio::time::sleep(SCAN_WAIT).await;
+                }
+                WINDOWS_SCANNING.store(false, Ordering::Relaxed);
+            });
         }
         let text = output("netsh", &["wlan", "show", "networks", "mode=bssid"])
             .await
