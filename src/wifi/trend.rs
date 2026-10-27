@@ -1,4 +1,4 @@
-//! Every access point heard across a run of scans, for walking around with `--live`: each one
+//! Every access point heard across a run of scans, for walking around with the wireless screen: each one
 //! stays once heard (marked gone while out of range, so rows don't come and go), with the
 //! change in its signal since the scan before and the loudest it has been.
 

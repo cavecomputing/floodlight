@@ -125,7 +125,6 @@ cargo run -- --wireless                # the WiFi networks heard here and how th
 cargo run -- --wireless --plain        # the same as a table on stdout
 cargo run -- --sweep --report out.pdf  # one sweep written as a PDF report, then exit (--wireless too)
 cargo run -- --wireless --report out.pdf --scan-for 20  # scan 20 s before writing (default 10)
-cargo run -- --wireless --live         # keep scanning, with each access point's signal trend
 
 cargo test                        # run every test
 cargo test mac                    # run only tests whose name contains "mac"
@@ -178,10 +177,10 @@ has, so nothing is embedded. It follows the design system's print documents (the
 cream Letter page, yellow edges, small-capital headings, rounded tables) with **no branding**: no
 name or logo anywhere on it.
 
-`--wireless`: `floodlight --wireless` opens a screen of every network heard, asks the OS's own
-tool for the list once in the background, and fills in when it answers; Ctrl+R asks again.
-With `--live` it asks again a second after each answer, keeping the last rows up meanwhile, and
-`wifi/trend.rs` tracks each access point's signal across scans.
+`--wireless`: `floodlight --wireless` opens a screen of every network heard and keeps asking the
+OS's own tool for the list in the background, a second after each answer, keeping the rows up
+meanwhile; `wifi/trend.rs` keeps every access point heard and tracks its signal across scans.
+Ctrl+R forgets them and starts over. `--plain` prints one scan.
 
 There is no daemon and no state between runs.
 
@@ -218,7 +217,7 @@ src/
     helper.swift         the macOS helper app: names need Location, which only an app can be given
     channels.rs          channels as frequencies: bands, the slice a network fills, who shares or
                          overlaps it, the quietest channel, the strip that draws a band
-    trend.rs             each access point's signal across scans: change and peak, for --live
+    trend.rs             each access point's signal across scans: change and peak, gone or heard
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
@@ -230,7 +229,7 @@ src/
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report
     app.rs               the sweep's screen: state, key handling, the prompt and the table
-    wireless.rs          the wireless screen: the networks, their crowds and strips, live or once
+    wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```

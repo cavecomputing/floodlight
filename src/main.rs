@@ -19,13 +19,10 @@ struct Args {
     /// Sweep a subnet: every address that answers, with its MAC, maker and name.
     #[arg(long)]
     sweep: bool,
-    /// Survey the WiFi here: every network heard, how the channels overlap, the quietest one.
+    /// Survey the WiFi here, scanning until you quit: every network heard, how its signal moves,
+    /// how the channels overlap, the quietest one.
     #[arg(long)]
     wireless: bool,
-    /// With --wireless: keep scanning, and show how each access point's signal moves (for
-    /// walking around to find interference or a rogue access point).
-    #[arg(long, conflicts_with_all = ["sweep", "plain"])]
-    live: bool,
     /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
     /// Defaults to the one this machine is on.
     #[arg(conflicts_with = "wireless")]
@@ -37,7 +34,7 @@ struct Args {
     #[arg(long, value_name = "QUERY", conflicts_with = "wireless")]
     find: Option<String>,
     /// Write the sweep or survey as a PDF report to this file, then exit.
-    #[arg(long, value_name = "FILE", conflicts_with_all = ["plain", "live"])]
+    #[arg(long, value_name = "FILE", conflicts_with = "plain")]
     report: Option<PathBuf>,
     /// With --wireless --report: how many seconds to keep scanning before writing, so weak
     /// networks that answer late make the report.
@@ -61,7 +58,7 @@ fn main() -> anyhow::Result<()> {
         if args.plain {
             return ui::plain::wireless(&runtime);
         }
-        return ui::wireless::run(&runtime, args.live);
+        return ui::wireless::run(&runtime);
     }
     let subnet = scan::subnet::choose(args.subnet.as_deref())?;
     if let Some(path) = &args.report {

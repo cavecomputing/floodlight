@@ -82,16 +82,16 @@ overlap. The top line names the quietest channel in each band.
 ```
 
 ```bash
-floodlight --wireless           # the screen; ^r scans again
-floodlight --wireless --plain   # print the table and exit
-floodlight --wireless --live    # keep scanning, for walking around
+floodlight --wireless           # the screen, scanning until you quit; ^r starts over
+floodlight --wireless --plain   # print one scan's table and exit
 floodlight --wireless --report wifi.pdf   # write it as a PDF report
 ```
 
-`--live` scans again as soon as each scan is in and adds a trend column: the dBm each access
-point gained or lost since the scan before, and the strongest it has been. Walk towards a rogue
-access point and its number climbs. The highlighted row follows its access point as rows
-re-sort. How fresh each scan is depends on the OS: iwd and macOS scan every time; NetworkManager
+The screen keeps scanning, a second after each scan is in, so you can walk around with it. Every
+access point heard stays on the list in a steady order (dimmed as `gone` while out of range), and
+a trend column shows the dBm each gained or lost since the scan before and the strongest it has
+been. Walk towards a rogue access point and its number climbs. **^r** forgets it all and starts
+over, for a new spot. How fresh each scan is depends on the OS: iwd and macOS scan every time; NetworkManager
 and Windows may refuse a new scan within a few seconds of the last and repeat it.
 
 Read from the OS's own tool, no root: `nmcli` (NetworkManager) or `iw` on Linux (with iwd, as on

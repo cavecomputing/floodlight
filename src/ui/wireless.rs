@@ -1,7 +1,7 @@
 //! The wireless screen: every network heard, its channel and width, who shares or overlaps it,
 //! and a strip of its band so the rows stacked together draw the overlap. Same look as the sweep's
-//! screen, without the prompt. Live, it scans again as soon as a scan is in, keeps every access
-//! point it has heard in a steady order, and shows how each one's signal moves.
+//! screen, without the prompt. It keeps scanning, a second after each scan is in, for walking
+//! around: every access point heard stays in a steady order, with how its signal moves.
 
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
@@ -24,14 +24,13 @@ use tokio::sync::oneshot;
 
 const TICK: Duration = Duration::from_millis(50);
 const PULSE: Duration = Duration::from_millis(600);
-/// The pause between one live scan answering and the next one starting.
-const LIVE_GAP: Duration = Duration::from_secs(1);
-const HINTS: [&str; 2] = ["^r scan again", "^c quit"];
+/// The pause between one scan answering and the next one starting.
+const SCAN_GAP: Duration = Duration::from_secs(1);
+const HINTS: [&str; 2] = ["^r start over", "^c quit"];
 
-pub fn run(runtime: &Runtime, live: bool) -> anyhow::Result<()> {
+pub fn run(runtime: &Runtime) -> anyhow::Result<()> {
     let mut screen = Screen {
         runtime,
-        live,
         survey: start(runtime),
         scanning: true,
         next_scan: None,
@@ -83,10 +82,9 @@ pub fn width(network: &Network) -> String {
 
 struct Screen<'a> {
     runtime: &'a Runtime,
-    live: bool,
     survey: oneshot::Receiver<(Result<Vec<Network>, String>, Duration)>,
     scanning: bool,
-    /// When the next live scan starts.
+    /// When the next scan starts.
     next_scan: Option<Instant>,
     /// The last scan's answer, kept on screen while the next one is out. None before the first.
     heard: Option<(Result<Vec<Network>, String>, Duration)>,
@@ -107,9 +105,7 @@ impl Screen<'_> {
                 }
                 self.heard = Some(heard);
                 self.scanning = false;
-                if self.live {
-                    self.next_scan = Some(Instant::now() + LIVE_GAP);
-                }
+                self.next_scan = Some(Instant::now() + SCAN_GAP);
             }
             if self.next_scan.is_some_and(|at| at <= Instant::now()) {
                 self.scan_again();
@@ -131,7 +127,7 @@ impl Screen<'_> {
             (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
                 self.quit = true
             }
-            (KeyCode::Char('r'), true) => self.scan_again(),
+            (KeyCode::Char('r'), true) => self.start_over(),
             (KeyCode::Up, _) | (KeyCode::Char('p'), true) => self.step(-1),
             (KeyCode::Down, _) | (KeyCode::Char('n'), true) => self.step(1),
             (KeyCode::PageUp, _) => self.step(-10),
@@ -150,31 +146,15 @@ impl Screen<'_> {
         }
     }
 
-    /// The rows: live, everything heard so far with its reading; otherwise the last scan.
-    fn rows(&self) -> Vec<(Network, Option<Reading>)> {
-        if self.live {
-            return self
-                .trend
-                .networks()
-                .into_iter()
-                .map(|(network, reading)| (network, Some(reading)))
-                .collect();
-        }
-        self.heard()
-            .iter()
-            .map(|network| (network.clone(), None))
-            .collect()
-    }
-
     /// The band's row among the rows.
-    fn index(&self, rows: &[(Network, Option<Reading>)]) -> usize {
+    fn index(&self, rows: &[(Network, Reading)]) -> usize {
         rows.iter()
             .position(|(network, _)| Some(trend::key(network)) == self.selected)
             .unwrap_or(0)
     }
 
     fn step(&mut self, by: i32) {
-        let rows = self.rows();
+        let rows = self.trend.networks();
         if rows.is_empty() {
             return;
         }
@@ -193,6 +173,13 @@ impl Screen<'_> {
         self.opened = Instant::now();
     }
 
+    /// Forgets everything heard so far (peaks, gone access points), for a new spot.
+    fn start_over(&mut self) {
+        self.trend = Trend::default();
+        self.selected = None;
+        self.table = TableState::default();
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
         let roles = &TERMINAL;
         frame.render_widget(
@@ -209,14 +196,11 @@ impl Screen<'_> {
         ])
         .areas(frame.area());
 
-        let mut words = match &self.heard {
+        let words = match &self.heard {
             Some((Ok(networks), _)) => headline(networks),
             Some((Err(_), _)) => "nothing to show".to_string(),
             None => "listening".to_string(),
         };
-        if self.live {
-            words = format!("live · {words}");
-        }
         frame.render_widget(
             Paragraph::new(Span::styled(format!("# {words}"), roles.comment())),
             inset(head),
@@ -245,7 +229,7 @@ impl Screen<'_> {
     }
 
     fn draw_table(&mut self, frame: &mut Frame, area: Rect, roles: &Roles) {
-        let networks = self.rows();
+        let networks = self.trend.networks();
         let index = self.index(&networks);
         // Neighbours count only what the last scan heard, not what has gone out of range.
         let heard = self.heard();
@@ -259,34 +243,34 @@ impl Screen<'_> {
             .enumerate()
             .map(|(i, (network, reading))| {
                 let crowd = crowds.get(&trend::key(network)).copied();
-                row(network, crowd, *reading, self.live, i == index, roles)
+                row(network, crowd, *reading, i == index, roles)
             })
             .collect();
         let empty = rows.is_empty();
 
-        let mut titles = vec!["ssid", "ch", "band", "width", "signal"];
-        let mut widths = vec![
+        let titles = [
+            "ssid",
+            "ch",
+            "band",
+            "width",
+            "signal",
+            "trend",
+            "neighbours",
+            "air",
+            "bssid",
+        ];
+        let widths = [
             Constraint::Fill(1),
             Constraint::Length(3),
             Constraint::Length(7),
             Constraint::Length(7),
             Constraint::Length(7),
-        ];
-        if self.live {
-            titles.push("trend");
-            widths.push(Constraint::Length(15));
-        }
-        titles.extend(["neighbours", "air", "bssid"]);
-        widths.extend([
+            Constraint::Length(15),
             Constraint::Length(18),
             Constraint::Length(30),
             Constraint::Length(17),
-        ]);
-        let header = Row::new(
-            titles
-                .into_iter()
-                .map(|title| Cell::from(Span::styled(title, roles.comment()))),
-        );
+        ];
+        let header = Row::new(titles.map(|title| Cell::from(Span::styled(title, roles.comment()))));
         let table = Table::new(rows, widths)
             .header(header)
             .column_spacing(2)
@@ -314,17 +298,16 @@ impl Screen<'_> {
     }
 }
 
-/// One network's row. Live, a trend cell follows the signal: the dBm gained or lost since the
-/// scan before, and the peak so far.
+/// One network's row. Its trend cell follows the signal: the dBm gained or lost since the scan
+/// before, and the peak so far.
 fn row(
     network: &Network,
     crowd: Option<Crowd>,
-    reading: Option<Reading>,
-    live: bool,
+    reading: Reading,
     active: bool,
     roles: &Roles,
 ) -> Row<'static> {
-    let gone = reading.is_some_and(|reading| !reading.heard);
+    let gone = !reading.heard;
     let mut ssid = vec![match &network.ssid {
         Some(name) if gone => Span::styled(name.clone(), roles.comment()),
         Some(name) if active => Span::styled(name.clone(), roles.active()),
@@ -347,7 +330,28 @@ fn row(
         roles.comment()
     };
     let bssid = network.bssid.clone().unwrap_or_else(|| "—".to_string());
-    let mut cells = vec![
+    let trend = match reading {
+        Reading {
+            heard: false, peak, ..
+        } => vec![Span::styled(format!("gone · peak {peak}"), roles.comment())],
+        Reading {
+            change: Some(change),
+            peak,
+            ..
+        } => {
+            let (words, tone) = match change {
+                1.. => (format!("+{change}"), roles.good()),
+                0 => ("±0".to_string(), roles.comment()),
+                _ => (change.to_string(), roles.warning()),
+            };
+            vec![
+                Span::styled(words, tone),
+                Span::styled(format!(" · peak {peak}"), roles.comment()),
+            ]
+        }
+        Reading { change: None, .. } => vec![Span::styled("new", roles.comment())],
+    };
+    Row::new(vec![
         Cell::from(Line::from(ssid)),
         Cell::from(Span::styled(
             channels::channel(network.freq_mhz).to_string(),
@@ -362,38 +366,12 @@ fn row(
             format!("{} dBm", network.signal_dbm),
             if gone { roles.comment() } else { roles.muted() },
         )),
-    ];
-    if live {
-        let trend = match reading {
-            Some(Reading {
-                heard: false, peak, ..
-            }) => vec![Span::styled(format!("gone · peak {peak}"), roles.comment())],
-            Some(Reading {
-                change: Some(change),
-                peak,
-                ..
-            }) => {
-                let (words, tone) = match change {
-                    1.. => (format!("+{change}"), roles.good()),
-                    0 => ("±0".to_string(), roles.comment()),
-                    _ => (change.to_string(), roles.warning()),
-                };
-                vec![
-                    Span::styled(words, tone),
-                    Span::styled(format!(" · peak {peak}"), roles.comment()),
-                ]
-            }
-            _ => vec![Span::styled("new", roles.comment())],
-        };
-        cells.push(Cell::from(Line::from(trend)));
-    }
-    cells.extend([
+        Cell::from(Line::from(trend)),
         Cell::from(neighbours),
         Cell::from(Span::styled(
             channels::strip(network.freq_mhz, network.width_mhz),
             roles.muted(),
         )),
         Cell::from(Span::styled(bssid, roles.comment())),
-    ]);
-    Row::new(cells)
+    ])
 }
