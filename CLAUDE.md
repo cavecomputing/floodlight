@@ -187,6 +187,7 @@ key wiring.
 ```
 Cargo.toml, Cargo.lock   dependencies, each with its one-line reason (see "Rust in plain terms")
 assets/oui.csv           the IEEE MA-L registry, cut to prefix and name; assets/README.md says how to refresh it
+assets/logo.svg          the logo the README shows: a lamp lighting the devices below it, in the Gruvbox yellow
 src/
   main.rs                entry point: reads the command line, picks the subnet, opens the screen or prints
   brand.rs               every name (see above)
