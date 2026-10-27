@@ -13,7 +13,7 @@ use ratatui::crossterm::event::{
     self as input, Event as Input, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
@@ -310,6 +310,7 @@ fn row(
     let gone = !reading.heard;
     let mut ssid = vec![match &network.ssid {
         Some(name) if gone => Span::styled(name.clone(), roles.comment()),
+        Some(name) if network.connected => Span::styled(name.clone(), roles.good()),
         Some(name) if active => Span::styled(name.clone(), roles.active()),
         Some(name) => Span::styled(name.clone(), roles.text()),
         None => Span::styled("hidden", roles.comment()),
@@ -351,7 +352,8 @@ fn row(
         }
         Reading { change: None, .. } => vec![Span::styled("new", roles.comment())],
     };
-    Row::new(vec![
+    let joined = network.connected && !gone;
+    let row = Row::new(vec![
         Cell::from(Line::from(ssid)),
         Cell::from(Span::styled(
             channels::channel(network.freq_mhz).to_string(),
@@ -373,5 +375,10 @@ fn row(
             roles.muted(),
         )),
         Cell::from(Span::styled(bssid, roles.comment())),
-    ])
+    ]);
+    // The access point this machine is joined to stands out in bold, besides its word.
+    if joined {
+        return row.style(Style::new().add_modifier(Modifier::BOLD));
+    }
+    row
 }

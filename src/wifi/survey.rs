@@ -52,7 +52,13 @@ pub async fn survey() -> Result<Vec<Network>, String> {
         let text = output("netsh", &["wlan", "show", "networks", "mode=bssid"])
             .await
             .ok_or("netsh couldn't list networks: is wifi on?")?;
-        parse_netsh(&text)
+        let mut networks = parse_netsh(&text);
+        let interfaces = output("netsh", &["wlan", "show", "interfaces"]).await;
+        let joined = interfaces.as_deref().and_then(joined_bssid);
+        for network in &mut networks {
+            network.connected = network.bssid.is_some() && network.bssid == joined;
+        }
+        networks
     } else {
         linux().await?
     };
@@ -358,9 +364,18 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
     networks
 }
 
+/// The access point Windows is joined to, from `netsh wlan show interfaces`:
+/// `    BSSID                  : aa:bb:cc:dd:ee:ff`.
+pub fn joined_bssid(text: &str) -> Option<String> {
+    text.lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(key, _)| key.trim() == "BSSID")
+        .and_then(|(_, value)| normalize_mac(value))
+}
+
 /// `netsh wlan show networks mode=bssid`: an `SSID 1 : name` line, then a `BSSID 1 : mac` line
 /// per access point with its `Signal : 90%`, `Channel : 36` and, on newer Windows,
-/// `Band : 5 GHz`. It doesn't say which one is joined.
+/// `Band : 5 GHz`. Which one is joined comes from `joined_bssid`.
 pub fn parse_netsh(text: &str) -> Vec<Network> {
     let mut heard: Vec<(Network, u32, Option<Band>)> = Vec::new();
     let mut name = None;
@@ -484,6 +499,14 @@ BSS aa:bb:cc:00:00:02(on wlan0)
             parse_helper("error\tno wifi card found\n").unwrap_err(),
             "no wifi card found"
         );
+    }
+
+    #[test]
+    fn finds_the_bssid_windows_is_joined_to() {
+        let text = "    Name                   : Wi-Fi\n    SSID                   : Home\n    \
+                    BSSID                  : aa:bb:cc:00:00:01\n    Channel                : 36\n";
+        assert_eq!(joined_bssid(text).as_deref(), Some("aa:bb:cc:00:00:01"));
+        assert_eq!(joined_bssid("    State : disconnected\n"), None);
     }
 
     #[test]
