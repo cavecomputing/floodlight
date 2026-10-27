@@ -17,8 +17,39 @@ const HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wifi-helper"));
 #[cfg(not(target_os = "macos"))]
 const HELPER: &[u8] = &[];
 
-/// How long iwd gets to finish the fresh scan it was asked for.
-const SCAN_WAIT: Duration = Duration::from_secs(3);
+/// How long a fresh scan (iwd's, or Windows' through `WINDOWS_SCAN`) gets to finish. Windows
+/// drivers have four seconds.
+const SCAN_WAIT: Duration = Duration::from_secs(4);
+
+/// Asks Windows to scan every wifi card. netsh can only list what Windows last scanned, and while
+/// joined to a network it rarely scans, so its list can hold the joined access point alone.
+/// PowerShell reaches wlanapi's WlanScan (no admin needed) through a few lines of C#.
+const WINDOWS_SCAN: &str = r#"Add-Type -TypeDefinition '
+using System; using System.Runtime.InteropServices;
+public static class Wlan {
+    [DllImport("wlanapi.dll")] static extern uint WlanOpenHandle(uint version, IntPtr reserved, out uint negotiated, out IntPtr handle);
+    [DllImport("wlanapi.dll")] static extern uint WlanEnumInterfaces(IntPtr handle, IntPtr reserved, out IntPtr list);
+    [DllImport("wlanapi.dll")] static extern uint WlanScan(IntPtr handle, ref Guid card, IntPtr ssid, IntPtr ie, IntPtr reserved);
+    [DllImport("wlanapi.dll")] static extern void WlanFreeMemory(IntPtr memory);
+    [DllImport("wlanapi.dll")] static extern uint WlanCloseHandle(IntPtr handle, IntPtr reserved);
+    public static void Scan() {
+        uint negotiated; IntPtr handle;
+        if (WlanOpenHandle(2, IntPtr.Zero, out negotiated, out handle) != 0) return;
+        IntPtr list;
+        if (WlanEnumInterfaces(handle, IntPtr.Zero, out list) == 0) {
+            int cards = Marshal.ReadInt32(list);
+            for (int i = 0; i < cards; i++) {
+                // Each WLAN_INTERFACE_INFO is a GUID, 256 UTF-16 characters and a state: 532 bytes,
+                // after the list header of two 4-byte counts.
+                Guid card = (Guid)Marshal.PtrToStructure(new IntPtr(list.ToInt64() + 8 + i * 532), typeof(Guid));
+                WlanScan(handle, ref card, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            }
+            WlanFreeMemory(list);
+        }
+        WlanCloseHandle(handle, IntPtr.Zero);
+    }
+}'
+[Wlan]::Scan()"#;
 
 /// One access point as heard from here.
 #[derive(Clone, Debug)]
@@ -49,6 +80,10 @@ pub async fn survey() -> Result<Vec<Network>, String> {
     let mut networks = if cfg!(target_os = "macos") {
         macos().await?
     } else if cfg!(windows) {
+        let scan = ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCAN];
+        if output("powershell", &scan).await.is_some() {
+            tokio::time::sleep(SCAN_WAIT).await;
+        }
         let text = output("netsh", &["wlan", "show", "networks", "mode=bssid"])
             .await
             .ok_or("netsh couldn't list networks: is wifi on?")?;
