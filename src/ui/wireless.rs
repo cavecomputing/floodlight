@@ -8,7 +8,7 @@ use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{INSET, inset};
 use crate::wifi::channels::{self, Band, Crowd};
 use crate::wifi::survey::{self, Network};
-use crate::wifi::trend::{self, Reading, Trend};
+use crate::wifi::trend::{self, Reading, Sort, Trend};
 use ratatui::crossterm::event::{
     self as input, Event as Input, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
 };
@@ -26,7 +26,7 @@ const TICK: Duration = Duration::from_millis(50);
 const PULSE: Duration = Duration::from_millis(600);
 /// The pause between one scan answering and the next one starting.
 const SCAN_GAP: Duration = Duration::from_secs(1);
-const HINTS: [&str; 2] = ["^r start over", "^c quit"];
+const HINTS: [&str; 3] = ["tab sort", "^r start over", "^c quit"];
 
 pub fn run(runtime: &Runtime) -> anyhow::Result<()> {
     let mut screen = Screen {
@@ -36,6 +36,8 @@ pub fn run(runtime: &Runtime) -> anyhow::Result<()> {
         next_scan: None,
         heard: None,
         trend: Trend::default(),
+        sort: Sort::Channel,
+        ranks: HashMap::new(),
         selected: None,
         table: TableState::default(),
         opened: Instant::now(),
@@ -89,6 +91,9 @@ struct Screen<'a> {
     /// The last scan's answer, kept on screen while the next one is out. None before the first.
     heard: Option<(Result<Vec<Network>, String>, Duration)>,
     trend: Trend,
+    sort: Sort,
+    /// Each access point's place when signal order was chosen.
+    ranks: HashMap<String, usize>,
     /// The row the band is on, by access point, so it follows it as the rows re-sort.
     selected: Option<String>,
     table: TableState,
@@ -102,6 +107,10 @@ impl Screen<'_> {
             if let Ok(heard) = self.survey.try_recv() {
                 if let (Ok(networks), _) = &heard {
                     self.trend.record(networks);
+                    // Signal order chosen before anything was heard ranks the first scan in.
+                    if self.sort == Sort::Signal && self.ranks.is_empty() {
+                        self.ranks = trend::ranks(&self.trend.networks());
+                    }
                 }
                 self.heard = Some(heard);
                 self.scanning = false;
@@ -128,6 +137,7 @@ impl Screen<'_> {
                 self.quit = true
             }
             (KeyCode::Char('r'), true) => self.start_over(),
+            (KeyCode::Tab, _) => self.sort_next(),
             (KeyCode::Up, _) | (KeyCode::Char('p'), true) => self.step(-1),
             (KeyCode::Down, _) | (KeyCode::Char('n'), true) => self.step(1),
             (KeyCode::PageUp, _) => self.step(-10),
@@ -154,7 +164,7 @@ impl Screen<'_> {
     }
 
     fn step(&mut self, by: i32) {
-        let rows = self.trend.networks();
+        let rows = self.rows();
         if rows.is_empty() {
             return;
         }
@@ -174,8 +184,22 @@ impl Screen<'_> {
     }
 
     /// Forgets everything heard so far (peaks, gone access points), for a new spot.
+    /// Everything heard so far, in the chosen order.
+    fn rows(&self) -> Vec<(Network, Reading)> {
+        let mut rows = self.trend.networks();
+        trend::sort(&mut rows, self.sort, &self.ranks);
+        rows
+    }
+
+    /// The next order; choosing signal ranks the rows as they are now.
+    fn sort_next(&mut self) {
+        self.sort = self.sort.next();
+        self.ranks = trend::ranks(&self.trend.networks());
+    }
+
     fn start_over(&mut self) {
         self.trend = Trend::default();
+        self.ranks.clear();
         self.selected = None;
         self.table = TableState::default();
     }
@@ -197,7 +221,9 @@ impl Screen<'_> {
         .areas(frame.area());
 
         let words = match &self.heard {
-            Some((Ok(networks), _)) => headline(networks),
+            Some((Ok(networks), _)) => {
+                format!("{} · by {}", headline(networks), self.sort.name())
+            }
             Some((Err(_), _)) => "nothing to show".to_string(),
             None => "listening".to_string(),
         };
@@ -229,7 +255,7 @@ impl Screen<'_> {
     }
 
     fn draw_table(&mut self, frame: &mut Frame, area: Rect, roles: &Roles) {
-        let networks = self.trend.networks();
+        let networks = self.rows();
         let index = self.index(&networks);
         // Neighbours count only what the last scan heard, not what has gone out of range.
         let heard = self.heard();

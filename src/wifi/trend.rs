@@ -57,6 +57,53 @@ impl Trend {
     }
 }
 
+/// How the wireless screen orders its rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sort {
+    /// By band and channel: the steady order `Trend::networks` gives.
+    Channel,
+    /// Loudest first, as ranked when chosen (see `sort`).
+    Signal,
+}
+
+impl Sort {
+    pub fn next(self) -> Sort {
+        match self {
+            Sort::Channel => Sort::Signal,
+            Sort::Signal => Sort::Channel,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Sort::Channel => "channel",
+            Sort::Signal => "signal",
+        }
+    }
+}
+
+/// Each access point's place, loudest first, to sort by signal with. Taken once when signal is
+/// chosen, so rows don't jump about as signals move from scan to scan.
+pub fn ranks(networks: &[(Network, Reading)]) -> HashMap<String, usize> {
+    let mut loudest: Vec<&Network> = networks.iter().map(|(network, _)| network).collect();
+    loudest.sort_by_key(|network| -network.signal_dbm);
+    loudest
+        .into_iter()
+        .enumerate()
+        .map(|(rank, network)| (key(network), rank))
+        .collect()
+}
+
+/// Puts rows that are in the steady order into the chosen one. By signal, anything heard since
+/// the ranks were taken goes after the ranked ones; ties keep the steady order.
+pub fn sort(networks: &mut [(Network, Reading)], sort: Sort, ranks: &HashMap<String, usize>) {
+    match sort {
+        Sort::Channel => {}
+        Sort::Signal => networks
+            .sort_by_key(|(network, _)| ranks.get(&key(network)).copied().unwrap_or(usize::MAX)),
+    }
+}
+
 /// One access point: its BSSID, or its name and channel where the OS gives no BSSID.
 pub fn key(network: &Network) -> String {
     match &network.bssid {
@@ -78,6 +125,36 @@ mod tests {
             signal_dbm,
             connected: false,
         }
+    }
+
+    #[test]
+    fn sorts_by_signal_as_ranked() {
+        let mut trend = Trend::default();
+        trend.record(&[
+            heard("aa:bb:cc:00:00:01", -80),
+            heard("aa:bb:cc:00:00:02", -50),
+        ]);
+        let ranks = ranks(&trend.networks());
+        // The first gets louder and a newcomer turns up: neither moves the ranked order.
+        trend.record(&[
+            heard("aa:bb:cc:00:00:01", -40),
+            heard("aa:bb:cc:00:00:02", -50),
+            heard("aa:bb:cc:00:00:00", -30),
+        ]);
+        let mut networks = trend.networks();
+        sort(&mut networks, Sort::Signal, &ranks);
+        let order: Vec<&str> = networks
+            .iter()
+            .map(|(network, _)| network.bssid.as_deref().unwrap())
+            .collect();
+        assert_eq!(
+            order,
+            [
+                "aa:bb:cc:00:00:02",
+                "aa:bb:cc:00:00:01",
+                "aa:bb:cc:00:00:00"
+            ]
+        );
     }
 
     #[test]
