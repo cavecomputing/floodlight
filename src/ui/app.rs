@@ -344,7 +344,7 @@ impl<'a> App<'a> {
         self.table.select((!empty).then_some(index));
         frame.render_stateful_widget(table, area, &mut self.table);
 
-        if area.height > 0 {
+        if area.height > 0 && area.width > INSET {
             frame.buffer_mut()[(area.x + INSET, area.y)]
                 .set_char('#')
                 .set_style(roles.comment());

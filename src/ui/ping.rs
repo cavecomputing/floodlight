@@ -195,7 +195,7 @@ impl Screen {
             ..area
         };
         frame.render_widget(table, rows);
-        if area.height > 0 {
+        if area.height > 0 && area.width > INSET {
             frame.buffer_mut()[(area.x + INSET, area.y)]
                 .set_char('#')
                 .set_style(roles.comment());
