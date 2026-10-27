@@ -235,6 +235,7 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
     }
 
     let mut measured = Vec::new();
+    let mut uploads = 0;
     for (phase, bytes, times) in SEQUENCE {
         if measured.contains(&phase) {
             continue;
@@ -248,9 +249,21 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
         let mut quickest = Duration::MAX;
         for _ in 0..times {
             let took = match phase {
-                Phase::Upload => cloudflare::upload(agent, &body)?,
+                Phase::Upload => match cloudflare::upload(agent, &body) {
+                    Ok(took) => took,
+                    // Cloudflare's firewall sometimes refuses uploads partway through a run; the
+                    // ones already measured stand, and the downloads carry on.
+                    Err(why) if why == cloudflare::REFUSED && uploads > 0 => {
+                        measured.push(phase);
+                        break;
+                    }
+                    Err(why) => return Err(why),
+                },
                 _ => cloudflare::download(agent, bytes)?,
             };
+            if phase == Phase::Upload {
+                uploads += 1;
+            }
             quickest = quickest.min(took);
             match (phase, cloudflare::mbps(bytes, took)) {
                 (Phase::Upload, Some(mbps)) => send(Event::Upload(mbps)),

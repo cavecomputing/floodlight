@@ -12,6 +12,8 @@ use ureq::{Agent, Body};
 const HOST: &str = "https://speed.cloudflare.com";
 /// How many times a request told to slow down (429) is asked again, as Cloudflare's page does.
 const RETRIES: u32 = 3;
+/// Why a request failed when Cloudflare's firewall turned it away.
+pub const REFUSED: &str = "cloudflare answered 403";
 
 /// The data center that answered, and the network this machine reached it through.
 #[derive(Clone, Debug, PartialEq)]
@@ -117,6 +119,9 @@ pub fn upload(agent: &Agent, body: &[u8]) -> Result<Duration, String> {
         agent
             .post(&url)
             .header("content-type", "text/plain;charset=UTF-8")
+            // Where the page's own uploads come from, as a browser says.
+            .header("origin", HOST)
+            .header("referer", format!("{HOST}/"))
             .send(body)
     })?;
     Ok(started.elapsed())
