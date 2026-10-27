@@ -155,11 +155,11 @@ suffix (`v0.2.0-rc.1`) becomes a pre-release.
 - Code that only one OS needs goes behind `#[cfg(...)]` or `cfg!(...)`, with a comment saying what
   the other OSes do. The ARP and WiFi parsers have a test per OS format so the others can't
   break quietly.
-- Logic (matching, MAC normalising, the ARP and ping parsers, the mDNS packet, settings, the WiFi
-  parsers and channel maths): unit tests next to the code, in a `#[cfg(test)] mod tests` block at
+- Logic (matching, MAC normalising, the ARP and ping parsers, the mDNS packet, the WiFi parsers
+  and channel maths): unit tests next to the code, in a `#[cfg(test)] mod tests` block at
   the bottom of the file. Keep that logic out of `ui/` so it can be tested without a terminal.
-- Anything visual (layout, colours, the status bar): run the app in a terminal and look, in both
-  themes (Ctrl+T). `--plain` checks the sweep itself without a screen. Never claim a change was
+- Anything visual (layout, colours, the status bar): run the app in a terminal and look, under a dark
+  and a light terminal theme. `--plain` checks the sweep itself without a screen. Never claim a change was
   checked on screen when it wasn't.
 - The sweep touches a real network. Run it on the LAN you are on; don't put its output (real
   addresses and MACs) in the repo.
@@ -182,8 +182,7 @@ tool for the list once in the background, and fills in when it answers; Ctrl+R a
 With `--live` it asks again a second after each answer, keeping the last rows up meanwhile, and
 `wifi/trend.rs` tracks each access point's signal across scans.
 
-There is no daemon, no
-state between runs beyond `settings.toml`.
+There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
 `Hosts`, redraws, and handles one key press. The sweep runs on a tokio runtime on other threads
@@ -220,7 +219,6 @@ src/
                          overlaps it, the quietest channel, the strip that draws a band
     trend.rs             each access point's signal across scans: change and peak, for --live
   os/                    the OS outside the network
-    settings.rs          settings.toml: load, defaults, atomic save
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
     pdf.rs               the PDF file format: pages, shapes, text in the built-in fonts and their widths
@@ -228,7 +226,8 @@ src/
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
   ui/                    everything on screen
-    theme.rs             Gruvbox palette roles as ratatui styles
+    theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
+                         Gruvbox light for the printed report
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their crowds and strips, live or once
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
@@ -244,17 +243,19 @@ at the bottom of the file they test.
 - **The look is the cavecomputing design system's desktop section, in a terminal.** The screen is
   text laid out like a config file: `#` lines are comments and hints in `fg-subtle`, `>` in
   `accent-text` is the prompt with no box around it, the active row is a full-width `bg-inset`
-  band with its address in `accent-text`, words separate with ` · `, commands are lowercase, and
+  band with its text all in the plain colour, words separate with ` · `, commands are lowercase, and
   nothing on screen says what the screen is. The status bar sits on `bg-page` under a `border`
   line: a dot and the sweep's state on the left (the dot pulses while sweeping: the only looping
   motion), key hints on the right, notices in place of the state for a few seconds. No boxes, no
   borders around the table, no title.
-- **Colours come from roles, not hex.** `ui/theme.rs` maps the design system's Gruvbox tokens to
-  roles: `bg-surface` the screen, `bg-page` the status bar, `accent-cool` addresses,
-  `accent-text` the prompt, the active row and a match, aqua a host that answered or a copy that
-  worked, `accent-warm` anything that went wrong. **No red.** Every status also carries a word
-  (`no reply`, `copy failed: ...`), never colour alone. Both themes are full themes; dark is the
-  default, Ctrl+T switches and saves.
+- **The screen takes the terminal's colours.** It paints no background and sets no text colour of
+  its own, so it sits in the terminal rather than as a block on it, and the terminal's theme is
+  its theme (there is no theme switch). `ui/theme.rs` maps the design system's roles onto the
+  terminal's 16-colour palette: `bg-surface` and `bg-page` are the terminal's background,
+  `fg-subtle`, `border` and the band are bright black, `accent-text` yellow, `accent-cool` blue,
+  aqua cyan, `accent-warm` magenta. **No red.** Colours come from roles, never hex or a named
+  colour at the call site. Every status also carries a word (`no reply`, `copy failed: ...`),
+  never colour alone. The printed report keeps the Gruvbox light palette's real colours.
 - **The font is the terminal's.** A desktop app of this brand bundles JetBrains Mono NL Nerd Font;
   a terminal tool can't, so the screen uses only plain Unicode it can count on: `●`, `·`, `—`,
   `─`. No Nerd Font glyphs, no emoji.
@@ -273,10 +274,6 @@ at the bottom of the file they test.
   app: the binary carries it, writes it as `<WIFI_HELPER>.app` into the data folder (ad-hoc signed,
   rewritten only when it changes), starts it with `open` so macOS treats it as its own app, and
   reads the list it writes to a temp file. A rewritten helper may need Location allowed again.
-- **Settings** live in `settings.toml` (hand-editable) in the OS's config folder:
-  `~/.config/<config dir>/` on Linux, `~/Library/Application Support/<config dir>/` on macOS,
-  `%APPDATA%\<config dir>\config\` on Windows. Unknown or missing keys fall back to defaults; a
-  save is a temp file renamed over the target.
 - **Shortcuts are written the way a terminal writes them** (`^r`, `esc`, `enter`), lowercase in
   the status bar. Ctrl is Ctrl on every OS inside a terminal.
 - **The registry goes stale.** `assets/oui.csv` is the IEEE list on the day it was fetched;

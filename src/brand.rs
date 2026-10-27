@@ -4,7 +4,7 @@
 /// The command people type.
 pub const BIN: &str = "floodlight";
 
-/// The folder under the OS's config directory that holds settings.toml.
+/// The folder under the OS's data directory that holds the macOS WiFi helper app.
 pub const CONFIG_DIR: &str = "floodlight";
 
 /// The macOS WiFi helper app, as it appears under Location Services in System Settings.

@@ -3,9 +3,8 @@
 //! screen, without the prompt. Live, it scans again as soon as a scan is in, keeps every access
 //! point it has heard in a steady order, and shows how each one's signal moves.
 
-use crate::os::settings::{self, Settings};
-use crate::ui::status_bar::{self, Notice};
-use crate::ui::theme::Roles;
+use crate::ui::status_bar;
+use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{INSET, inset};
 use crate::wifi::channels::{self, Band, Crowd};
 use crate::wifi::survey::{self, Network};
@@ -24,13 +23,12 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 const TICK: Duration = Duration::from_millis(50);
-const NOTICE_FOR: Duration = Duration::from_millis(2500);
 const PULSE: Duration = Duration::from_millis(600);
 /// The pause between one live scan answering and the next one starting.
 const LIVE_GAP: Duration = Duration::from_secs(1);
-const HINTS: [&str; 3] = ["^r scan again", "^t theme", "^c quit"];
+const HINTS: [&str; 2] = ["^r scan again", "^c quit"];
 
-pub fn run(runtime: &Runtime, settings: Settings, live: bool) -> anyhow::Result<()> {
+pub fn run(runtime: &Runtime, live: bool) -> anyhow::Result<()> {
     let mut screen = Screen {
         runtime,
         live,
@@ -41,8 +39,6 @@ pub fn run(runtime: &Runtime, settings: Settings, live: bool) -> anyhow::Result<
         trend: Trend::default(),
         selected: None,
         table: TableState::default(),
-        settings,
-        notice: None,
         opened: Instant::now(),
         quit: false,
     };
@@ -98,8 +94,6 @@ struct Screen<'a> {
     /// The row the band is on, by access point, so it follows it as the rows re-sort.
     selected: Option<String>,
     table: TableState,
-    settings: Settings,
-    notice: Option<Notice>,
     opened: Instant,
     quit: bool,
 }
@@ -120,13 +114,6 @@ impl Screen<'_> {
             if self.next_scan.is_some_and(|at| at <= Instant::now()) {
                 self.scan_again();
             }
-            if self
-                .notice
-                .as_ref()
-                .is_some_and(|notice| notice.until <= Instant::now())
-            {
-                self.notice = None;
-            }
             terminal.draw(|frame| self.draw(frame))?;
             if input::poll(TICK)?
                 && let Input::Key(key) = input::read()?
@@ -145,7 +132,6 @@ impl Screen<'_> {
                 self.quit = true
             }
             (KeyCode::Char('r'), true) => self.scan_again(),
-            (KeyCode::Char('t'), true) => self.switch_theme(),
             (KeyCode::Up, _) | (KeyCode::Char('p'), true) => self.step(-1),
             (KeyCode::Down, _) | (KeyCode::Char('n'), true) => self.step(1),
             (KeyCode::PageUp, _) => self.step(-10),
@@ -207,20 +193,8 @@ impl Screen<'_> {
         self.opened = Instant::now();
     }
 
-    /// Applies and saves at once, like every setting.
-    fn switch_theme(&mut self) {
-        self.settings.theme = self.settings.theme.other();
-        if let Err(why) = settings::save(&self.settings) {
-            self.notice = Some(Notice {
-                text: format!("theme not saved: {why}"),
-                ok: false,
-                until: Instant::now() + NOTICE_FOR,
-            });
-        }
-    }
-
     fn draw(&mut self, frame: &mut Frame) {
-        let roles = Roles::of(self.settings.theme);
+        let roles = &TERMINAL;
         frame.render_widget(
             Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
             frame.area(),
@@ -253,27 +227,19 @@ impl Screen<'_> {
     }
 
     fn state_line(&self, roles: &Roles) -> Line<'static> {
-        let (dot, words, tone) = match (&self.notice, &self.heard) {
-            _ if self.notice.is_none() && self.scanning => {
+        let (dot, words, tone) = match &self.heard {
+            _ if self.scanning => {
                 let lit = (self.opened.elapsed().as_millis() / PULSE.as_millis()).is_multiple_of(2);
                 let dot = if lit { roles.active() } else { roles.comment() };
                 (dot, "scanning".to_string(), roles.muted())
             }
-            (Some(notice), _) => {
-                let tone = if notice.ok {
-                    roles.good()
-                } else {
-                    roles.warning()
-                };
-                (tone, notice.text.clone(), tone)
-            }
-            (None, Some((Ok(networks), took))) => (
+            Some((Ok(networks), took)) => (
                 roles.good(),
                 format!("{} heard · {:.1}s", networks.len(), took.as_secs_f32()),
                 roles.muted(),
             ),
-            (None, Some((Err(why), _))) => (roles.warning(), why.clone(), roles.warning()),
-            (None, None) => (roles.comment(), "scanning".to_string(), roles.muted()),
+            Some((Err(why), _)) => (roles.warning(), why.clone(), roles.warning()),
+            None => (roles.comment(), "scanning".to_string(), roles.muted()),
         };
         Line::from(vec![Span::styled("● ", dot), Span::styled(words, tone)])
     }
@@ -326,7 +292,7 @@ impl Screen<'_> {
             .column_spacing(2)
             .highlight_symbol(" ".repeat(INSET as usize + 2))
             .highlight_spacing(HighlightSpacing::Always)
-            .row_highlight_style(Style::new().bg(roles.bg_inset));
+            .row_highlight_style(roles.band());
         self.table.select((!empty).then_some(index));
         frame.render_stateful_widget(table, area, &mut self.table);
 

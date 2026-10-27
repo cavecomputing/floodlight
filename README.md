@@ -60,7 +60,7 @@ floodlight --sweep --report lan.pdf # write it as a PDF report (see --report)
 
 On screen: type to filter (an address fragment, a MAC with or without separators, a maker, a
 name), ↑↓ to move, **enter** copies the address, **tab** copies the MAC, **^r** sweeps again,
-**^t** switches between the dark and light theme, **esc** clears, **^c** quits.
+**esc** clears, **^c** quits. The colours are your terminal's own.
 
 Needs no root: hosts are found with the system `ping` and the OS's ARP table, names with mDNS and
 reverse DNS, makers from the IEEE registry built into the binary. Linux, macOS and Windows.

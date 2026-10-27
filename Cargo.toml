@@ -9,7 +9,7 @@ anyhow = "1"
 # The date and time on a report, in this machine's time zone.
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
-# Where settings.toml lives on each OS.
+# The data folder on each OS, where the macOS WiFi helper app is written.
 directories = "6"
 # Reverse DNS (the OS's getnameinfo) for the name column.
 dns-lookup = "4"
@@ -19,9 +19,7 @@ if-addrs = "0.15"
 ipnet = "2"
 ratatui = "0.30"
 regex = "1"
-serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros"] }
-toml = "1"
 
 [profile.release]
 strip = true

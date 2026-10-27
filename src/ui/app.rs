@@ -4,12 +4,11 @@
 //! the screen is.
 
 use crate::os::clipboard;
-use crate::os::settings::{self, Settings};
 use crate::scan::hosts::{Column, Hit, Host, Hosts, Query, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep::{self, Event};
 use crate::ui::status_bar::{self, Notice};
-use crate::ui::theme::Roles;
+use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{INSET, inset};
 use ratatui::crossterm::event::{
     self as input, Event as Input, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
@@ -30,17 +29,16 @@ const NOTICE_FOR: Duration = Duration::from_millis(2500);
 /// The sweeping dot's pulse, the screen's only looping motion.
 const PULSE: Duration = Duration::from_millis(600);
 const PLACEHOLDER: &str = "type part of an ip, mac, maker or name";
-const HINTS: [&str; 6] = [
+const HINTS: [&str; 5] = [
     "enter copy ip",
     "tab copy mac",
     "^r sweep again",
-    "^t theme",
     "esc clear",
     "^c quit",
 ];
 
-pub fn run(runtime: &Runtime, subnet: Subnet, settings: Settings) -> anyhow::Result<()> {
-    let mut app = App::new(runtime, subnet, settings);
+pub fn run(runtime: &Runtime, subnet: Subnet) -> anyhow::Result<()> {
+    let mut app = App::new(runtime, subnet);
     let mut terminal = ratatui::init();
     let outcome = app.show(&mut terminal);
     ratatui::restore();
@@ -56,14 +54,13 @@ struct App<'a> {
     /// The row the band is on, by address, so it stays put as rows arrive above it.
     selected: Option<Ipv4Addr>,
     table: TableState,
-    settings: Settings,
     notice: Option<Notice>,
     opened: Instant,
     quit: bool,
 }
 
 impl<'a> App<'a> {
-    fn new(runtime: &'a Runtime, subnet: Subnet, settings: Settings) -> App<'a> {
+    fn new(runtime: &'a Runtime, subnet: Subnet) -> App<'a> {
         let events = sweep::start(runtime, subnet.net);
         let hosts = Hosts::new(subnet.net.hosts().count());
         App {
@@ -74,7 +71,6 @@ impl<'a> App<'a> {
             filter: String::new(),
             selected: None,
             table: TableState::default(),
-            settings,
             notice: None,
             opened: Instant::now(),
             quit: false,
@@ -113,7 +109,6 @@ impl<'a> App<'a> {
             (KeyCode::Enter, _) => self.copy(Column::Ip),
             (KeyCode::Tab, _) => self.copy(Column::Mac),
             (KeyCode::Char('r'), true) => self.sweep_again(),
-            (KeyCode::Char('t'), true) => self.switch_theme(),
             (KeyCode::Up, _) | (KeyCode::Char('p'), true) => self.step(-1),
             (KeyCode::Down, _) | (KeyCode::Char('n'), true) => self.step(1),
             (KeyCode::PageUp, _) => self.step(-10),
@@ -216,16 +211,8 @@ impl<'a> App<'a> {
         self.table = TableState::default();
     }
 
-    /// Applies and saves at once, like every setting.
-    fn switch_theme(&mut self) {
-        self.settings.theme = self.settings.theme.other();
-        if let Err(why) = settings::save(&self.settings) {
-            self.notice(&format!("theme not saved: {why}"), false);
-        }
-    }
-
     fn draw(&mut self, frame: &mut Frame) {
-        let roles = Roles::of(self.settings.theme);
+        let roles = &TERMINAL;
         let area = frame.area();
         frame.render_widget(
             Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
@@ -353,7 +340,7 @@ impl<'a> App<'a> {
         // The band's gutter is the inset plus the two columns `# ` and `> ` take above.
         .highlight_symbol(" ".repeat(INSET as usize + 2))
         .highlight_spacing(HighlightSpacing::Always)
-        .row_highlight_style(Style::new().bg(roles.bg_inset));
+        .row_highlight_style(roles.band());
         self.table.select((!empty).then_some(index));
         frame.render_stateful_widget(table, area, &mut self.table);
 

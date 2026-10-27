@@ -1,4 +1,3 @@
-//! The parts that touch the OS outside the network: the settings file and the clipboard.
+//! The parts that touch the OS outside the network: the clipboard.
 
 pub mod clipboard;
-pub mod settings;

@@ -1,7 +1,7 @@
-//! The cavecomputing Gruvbox palette as named roles (from its design system's tokens), mapped to
-//! ratatui styles. Colours anywhere else come from `Roles`, never hex.
+//! Colours as named roles from the cavecomputing design system's tokens: the screen's, in the
+//! terminal's own colours, and the Gruvbox light palette the printed report uses. Colours
+//! anywhere else come from `Roles`, never hex.
 
-use crate::os::settings::Theme;
 use ratatui::style::{Color, Modifier, Style};
 
 pub struct Roles {
@@ -21,26 +21,32 @@ pub struct Roles {
     pub accent_text: Color,
     /// Blue: addresses.
     pub accent_cool: Color,
-    /// Orange: anything that went wrong, always with words. There is no red.
+    /// Warm (orange in print, magenta on screen): anything that went wrong, always with words.
+    /// There is no red.
     pub accent_warm: Color,
     /// Aqua: a host that answered, a copy that worked.
     pub accent_aqua: Color,
 }
 
-pub const DARK: Roles = Roles {
-    bg_page: Color::Rgb(0x1d, 0x20, 0x21),
-    bg_surface: Color::Rgb(0x28, 0x28, 0x28),
-    bg_inset: Color::Rgb(0x3c, 0x38, 0x36),
-    border: Color::Rgb(0x3c, 0x38, 0x36),
-    fg: Color::Rgb(0xeb, 0xdb, 0xb2),
-    fg_muted: Color::Rgb(0xa8, 0x99, 0x84),
-    fg_subtle: Color::Rgb(0x7c, 0x6f, 0x64),
-    accent_text: Color::Rgb(0xfa, 0xbd, 0x2f),
-    accent_cool: Color::Rgb(0x83, 0xa5, 0x98),
-    accent_warm: Color::Rgb(0xfe, 0x80, 0x19),
-    accent_aqua: Color::Rgb(0x8e, 0xc0, 0x7c),
+/// The screen, in the terminal's own colours: its background and text untouched, so the screen
+/// sits in the terminal instead of as a block on it, and its 16-colour palette (which the
+/// terminal's theme sets) for the accents. Bright black is the terminal's dim colour.
+pub const TERMINAL: Roles = Roles {
+    bg_page: Color::Reset,
+    bg_surface: Color::Reset,
+    bg_inset: Color::DarkGray,
+    border: Color::DarkGray,
+    fg: Color::Reset,
+    fg_muted: Color::Reset,
+    fg_subtle: Color::DarkGray,
+    accent_text: Color::Yellow,
+    accent_cool: Color::Blue,
+    // The palette has no orange, and red is out.
+    accent_warm: Color::Magenta,
+    accent_aqua: Color::Cyan,
 };
 
+/// The Gruvbox light theme, for the printed report.
 pub const LIGHT: Roles = Roles {
     bg_page: Color::Rgb(0xf9, 0xf5, 0xd7),
     bg_surface: Color::Rgb(0xfb, 0xf1, 0xc7),
@@ -56,13 +62,6 @@ pub const LIGHT: Roles = Roles {
 };
 
 impl Roles {
-    pub fn of(theme: Theme) -> &'static Roles {
-        match theme {
-            Theme::Dark => &DARK,
-            Theme::Light => &LIGHT,
-        }
-    }
-
     pub fn text(&self) -> Style {
         Style::new().fg(self.fg)
     }
@@ -74,6 +73,12 @@ impl Roles {
     /// A `#` line, a placeholder, a dash for nothing.
     pub fn comment(&self) -> Style {
         Style::new().fg(self.fg_subtle)
+    }
+
+    /// The band under the active row. Its text all takes the plain colour: the dim one that
+    /// comments use is the band's own colour and would vanish into it.
+    pub fn band(&self) -> Style {
+        Style::new().bg(self.bg_inset).fg(self.fg)
     }
 
     pub fn active(&self) -> Style {

@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
         if args.plain {
             return ui::plain::wireless(&runtime);
         }
-        return ui::wireless::run(&runtime, os::settings::load(), args.live);
+        return ui::wireless::run(&runtime, args.live);
     }
     let subnet = scan::subnet::choose(args.subnet.as_deref())?;
     if let Some(path) = &args.report {
@@ -60,5 +60,5 @@ fn main() -> anyhow::Result<()> {
     if args.plain || args.find.is_some() {
         return ui::plain::run(&runtime, subnet, args.find.as_deref());
     }
-    ui::app::run(&runtime, subnet, os::settings::load())
+    ui::app::run(&runtime, subnet)
 }
