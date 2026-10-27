@@ -1,7 +1,7 @@
 //! The wireless screen: every network heard, its channel and width, who shares or overlaps it,
 //! and a strip of its band so the rows stacked together draw the overlap. Same look as the sweep's
-//! screen, without the prompt. Live, it scans again as soon as a scan is in, and shows how each
-//! access point's signal moves.
+//! screen, without the prompt. Live, it scans again as soon as a scan is in, keeps every access
+//! point it has heard in a steady order, and shows how each one's signal moves.
 
 use crate::os::settings::{self, Settings};
 use crate::ui::status_bar::{self, Notice};
@@ -18,6 +18,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
@@ -155,29 +156,45 @@ impl Screen<'_> {
         }
     }
 
-    fn networks(&self) -> &[Network] {
+    /// The networks in the last scan.
+    fn heard(&self) -> &[Network] {
         match &self.heard {
             Some((Ok(networks), _)) => networks,
             _ => &[],
         }
     }
 
-    /// The band's row among the networks.
-    fn index(&self) -> usize {
-        self.networks()
+    /// The rows: live, everything heard so far with its reading; otherwise the last scan.
+    fn rows(&self) -> Vec<(Network, Option<Reading>)> {
+        if self.live {
+            return self
+                .trend
+                .networks()
+                .into_iter()
+                .map(|(network, reading)| (network, Some(reading)))
+                .collect();
+        }
+        self.heard()
             .iter()
-            .position(|network| Some(trend::key(network)) == self.selected)
+            .map(|network| (network.clone(), None))
+            .collect()
+    }
+
+    /// The band's row among the rows.
+    fn index(&self, rows: &[(Network, Option<Reading>)]) -> usize {
+        rows.iter()
+            .position(|(network, _)| Some(trend::key(network)) == self.selected)
             .unwrap_or(0)
     }
 
     fn step(&mut self, by: i32) {
-        let networks = self.networks();
-        if networks.is_empty() {
+        let rows = self.rows();
+        if rows.is_empty() {
             return;
         }
-        let last = networks.len() as i32 - 1;
-        let to = (self.index() as i32).saturating_add(by).clamp(0, last) as usize;
-        self.selected = Some(trend::key(&networks[to]));
+        let last = rows.len() as i32 - 1;
+        let to = (self.index(&rows) as i32).saturating_add(by).clamp(0, last) as usize;
+        self.selected = Some(trend::key(&rows[to].0));
     }
 
     fn scan_again(&mut self) {
@@ -262,16 +279,21 @@ impl Screen<'_> {
     }
 
     fn draw_table(&mut self, frame: &mut Frame, area: Rect, roles: &Roles) {
-        let networks = self.networks();
-        let index = self.index();
-        let crowds = channels::crowds(networks);
+        let networks = self.rows();
+        let index = self.index(&networks);
+        // Neighbours count only what the last scan heard, not what has gone out of range.
+        let heard = self.heard();
+        let crowds: HashMap<String, Crowd> = heard
+            .iter()
+            .map(trend::key)
+            .zip(channels::crowds(heard))
+            .collect();
         let rows: Vec<Row<'static>> = networks
             .iter()
-            .zip(&crowds)
             .enumerate()
-            .map(|(i, (network, crowd))| {
-                let reading = self.live.then(|| self.trend.of(network)).flatten();
-                row(network, *crowd, reading, self.live, i == index, roles)
+            .map(|(i, (network, reading))| {
+                let crowd = crowds.get(&trend::key(network)).copied();
+                row(network, crowd, *reading, self.live, i == index, roles)
             })
             .collect();
         let empty = rows.is_empty();
@@ -330,13 +352,15 @@ impl Screen<'_> {
 /// scan before, and the peak so far.
 fn row(
     network: &Network,
-    crowd: Crowd,
+    crowd: Option<Crowd>,
     reading: Option<Reading>,
     live: bool,
     active: bool,
     roles: &Roles,
 ) -> Row<'static> {
+    let gone = reading.is_some_and(|reading| !reading.heard);
     let mut ssid = vec![match &network.ssid {
+        Some(name) if gone => Span::styled(name.clone(), roles.comment()),
         Some(name) if active => Span::styled(name.clone(), roles.active()),
         Some(name) => Span::styled(name.clone(), roles.text()),
         None => Span::styled("hidden", roles.comment()),
@@ -344,12 +368,11 @@ fn row(
     if network.connected {
         ssid.push(Span::styled(" · joined", roles.good()));
     }
-    let neighbours = if crowd.overlapping > 0 {
-        roles.warning()
-    } else if crowd.same > 0 {
-        roles.muted()
-    } else {
-        roles.good()
+    let neighbours = match crowd {
+        Some(crowd) if crowd.overlapping > 0 => Span::styled(crowd.words(), roles.warning()),
+        Some(crowd) if crowd.same > 0 => Span::styled(crowd.words(), roles.muted()),
+        Some(crowd) => Span::styled(crowd.words(), roles.good()),
+        None => Span::styled("—", roles.comment()),
     };
     let width = width(network);
     let width_style = if network.width_mhz.is_some() {
@@ -371,14 +394,18 @@ fn row(
         Cell::from(Span::styled(width, width_style)),
         Cell::from(Span::styled(
             format!("{} dBm", network.signal_dbm),
-            roles.muted(),
+            if gone { roles.comment() } else { roles.muted() },
         )),
     ];
     if live {
         let trend = match reading {
             Some(Reading {
+                heard: false, peak, ..
+            }) => vec![Span::styled(format!("gone · peak {peak}"), roles.comment())],
+            Some(Reading {
                 change: Some(change),
                 peak,
+                ..
             }) => {
                 let (words, tone) = match change {
                     1.. => (format!("+{change}"), roles.good()),
@@ -395,7 +422,7 @@ fn row(
         cells.push(Cell::from(Line::from(trend)));
     }
     cells.extend([
-        Cell::from(Span::styled(crowd.words(), neighbours)),
+        Cell::from(neighbours),
         Cell::from(Span::styled(
             channels::strip(network.freq_mhz, network.width_mhz),
             roles.muted(),
