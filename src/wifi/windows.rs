@@ -3,7 +3,7 @@
 //! each survey asks for a scan and reads what the one before found: nothing waits. Only compiled
 //! on Windows; the other OSes list networks through their own tools in survey.rs.
 
-use super::survey::{Network, bond_from_ies};
+use super::survey::{self, Network, bond_from_ies};
 use std::ptr::{null, null_mut};
 use std::slice;
 use windows_sys::Win32::NetworkManagement::WiFi::{
@@ -82,7 +82,7 @@ unsafe fn network(entry: &WLAN_BSS_ENTRY, joined: Option<[u8; 6]>) -> Network {
     let freq_mhz = entry.ulChCenterFrequency / 1000;
     let (width_mhz, centre_mhz) = bond_from_ies(ies, freq_mhz);
     Network {
-        ssid: (!name.trim_matches('\0').is_empty()).then(|| name.into_owned()),
+        ssid: survey::ssid(&name),
         bssid: Some(mac(entry.dot11Bssid)),
         freq_mhz,
         width_mhz: Some(width_mhz),

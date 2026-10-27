@@ -268,10 +268,37 @@ async fn output(program: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// The name to show, None for a hidden network (no name, or only zero bytes, which
+/// `printable` drops).
 pub fn ssid(raw: &str) -> Option<String> {
     let raw = printable(raw.trim());
-    // iw prints a hidden network's name as zero bytes, `\x00\x00...`.
-    (!raw.is_empty() && !raw.starts_with("\\x00")).then_some(raw)
+    (!raw.is_empty()).then_some(raw)
+}
+
+/// iw's name with its escapes undone: it writes every byte that isn't plain ASCII, and a
+/// backslash, as `\xNN`, so `Café` arrives as `Caf\xc3\xa9` and a hidden name as `\x00\x00`.
+fn unescape_iw(escaped: &str) -> String {
+    let mut bytes = Vec::new();
+    let mut rest = escaped.as_bytes();
+    while let Some((&byte, after)) = rest.split_first() {
+        let code = match (byte, after) {
+            (b'\\', [b'x', high, low, ..]) => {
+                u8::from_str_radix(&format!("{}{}", *high as char, *low as char), 16).ok()
+            }
+            _ => None,
+        };
+        match code {
+            Some(code) => {
+                bytes.push(code);
+                rest = &after[3..];
+            }
+            None => {
+                bytes.push(byte);
+                rest = after;
+            }
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// A beacon's channel width and the centre of its bonded channel, from its information
@@ -423,7 +450,7 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
         } else if let Some(value) = line.strip_prefix("signal:") {
             network.signal_dbm = number(value).unwrap_or(-100.0).round() as i32;
         } else if let Some(value) = line.strip_prefix("SSID:") {
-            network.ssid = ssid(value);
+            network.ssid = ssid(&unescape_iw(value));
         } else if let Some(value) = line.strip_prefix("* secondary channel offset:") {
             if value.contains("above") {
                 network.width_mhz = Some(40);
@@ -565,7 +592,7 @@ BSS aa:bb:cc:00:00:02(on wlan0)
 \t\t * secondary channel offset: no secondary
 BSS aa:bb:cc:00:00:03(on wlan0)
 \tfreq: 2462
-\tSSID: Attic
+\tSSID: Caf\\xc3\\xa9 Attic
 \tHT operation:
 \t\t * primary channel: 11
 \t\t * secondary channel offset: below
@@ -604,6 +631,7 @@ BSS aa:bb:cc:00:00:05(on wlan0)
         assert_eq!(networks[1].width_mhz, Some(20));
         assert_eq!(networks[1].centre_mhz, Some(2412));
         assert_eq!(networks[1].bssid.as_deref(), Some("aa:bb:cc:00:00:02"));
+        assert_eq!(networks[2].ssid.as_deref(), Some("Café Attic"));
         assert_eq!(networks[2].width_mhz, Some(40));
         assert_eq!(networks[2].centre_mhz, Some(2452));
         assert_eq!(networks[3].width_mhz, Some(320));
