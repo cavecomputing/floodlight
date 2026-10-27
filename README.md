@@ -1,7 +1,39 @@
-# Floodlight
+<p align="center">
+  <img src="assets/logo.svg" alt="Floodlight" width="128">
+</p>
 
-Looks at the network around this machine. Each feature has its flag; `floodlight` alone lists
-them.
+<p align="center">
+  Shine a light on the network around you, from the terminal.
+</p>
+
+
+Floodlight is a small terminal tool that looks at the network this machine is on. It finds every
+device on your subnet, with its MAC, maker and name, so the camera or switch you just plugged in
+turns up by the MAC on its label. And it lists the WiFi networks around you and how their channels
+crowd each other, so you can pick the quietest one.
+
+Each feature has its own flag. `floodlight` on its own prints the help that lists them.
+
+| Flag | What it does |
+|---|---|
+| [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
+| [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
+
+It needs no root, uses the tools your OS already has, and runs on Linux, macOS and Windows.
+
+## Quick start
+
+All you need is [Rust](https://rustup.rs) and a C compiler (`base-devel` on Arch,
+`build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools on
+Windows).
+
+```bash
+cargo install --git https://github.com/cavecomputing/floodlight
+floodlight --sweep
+```
+
+`cargo install` builds the release binary and puts it in `~/.cargo/bin`, which rustup already
+added to your `PATH`. Run the same command again to update.
 
 ## --sweep
 
@@ -57,14 +89,16 @@ Omarchy, install `iw`; iwd is asked for a fresh scan first), `system_profiler` o
 on Windows. A width the OS doesn't report (nmcli, netsh) shows `—` and counts as 20 MHz. macOS
 and recent Windows may hide network names until the terminal has location access.
 
-## Build
+## Building from a clone
 
 ```bash
-cargo install --path .
+git clone https://github.com/cavecomputing/floodlight.git
+cd floodlight
+cargo run -- --sweep        # a debug build, straight from the source
+cargo install --path .      # or install it, like the quick start does
 ```
 
-Rust (rustup) and a C compiler are all it takes to build. On Linux, copying needs `wl-copy`
-(wl-clipboard), `xclip` or `xsel`.
+On Linux, copying a row needs `wl-copy` (wl-clipboard), `xclip` or `xsel`.
 
 ## Licence
 
