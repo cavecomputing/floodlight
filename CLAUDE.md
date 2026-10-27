@@ -7,7 +7,7 @@ sweeps a subnet and shows every address that answered with its MAC, maker and na
 that filters the rows as you type, so a camera or switch you just plugged in is found by the MAC
 on its label (or the other way round). `--wireless` lists the WiFi networks in earshot and how
 their channels overlap. `--speedtest` measures the internet connection's download, upload, latency
-and jitter against Cloudflare. `--ping` pings a host (the gateway by default) over and over,
+and jitter against Cloudflare. `--ping` pings up to five hosts (the gateway by default) over and over,
 graphing every round trip and counting the ones lost. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
@@ -207,15 +207,17 @@ that direction keeps what it measured and the run fails only when it had measure
 through the ureq crate on a thread of its own, one kept-open connection, cookies kept, no gzip.
 `--count N` runs it N times, `--wait SECONDS` apart (5 by default); Ctrl+R runs the same again once it is done.
 
-`--ping [HOST]`: pings HOST (a name or an IPv4 address; the gateway from the OS's route table when
-none is given) on a thread of its own, one echo at a time: up to 2 s for the reply, then `--wait`
+`--ping [HOST]...`: pings up to five hosts (names or IPv4 addresses; the gateway from the OS's
+route table when none is given), each on a thread of its own with its own socket, all sending
+their `Ping`s (tagged with the host's index) into one channel, one echo at a time: up to 2 s for the reply, then `--wait`
 **milliseconds** (500 by default; the same flag is seconds for `--speedtest`) before the next.
 `--count N` stops after N; 0, the default, pings until you quit, and `--report` (which needs an
 end) takes 10 unless told. No root and no Administrator: Linux and macOS send through an ICMP
 datagram socket (socket2), which Linux allows when `net.ipv4.ping_group_range` covers the user
 (systemd sets it so); Windows uses its own `IcmpSendEcho` (windows-sys). Every round trip is
 timed with `Instant` around the send and the reply, since Windows only reports whole
-milliseconds. Ctrl+R forgets the pings and starts over.
+milliseconds. Ctrl+R forgets the pings and starts over. The screen and the report give each host
+a graph of its own (three to a row on screen); the report has no table of every ping.
 
 There is no daemon and no state between runs.
 
@@ -260,10 +262,10 @@ src/
     cloudflare.rs        speed.cloudflare.com through ureq: the transfers and their timings, the data center
     runs.rs              the runs: the sizes, the Event enum the screen hears, latency, jitter and
                          the 90th percentile speeds
-  ping/                  pinging one host, no UI
+  ping/                  pinging up to five hosts, no UI
     target.rs            what to ping: the name or address typed, or the gateway from the route table
     echo.rs              one ICMP echo, timed: the ping socket on Linux and macOS, IcmpSendEcho on Windows
-    pings.rs             the pings on their thread, --count and --wait, the totals (lost, min,
+    pings.rs             the pings, a thread a host, --count and --wait, the totals (lost, min,
                          average, max, jitter)
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
@@ -273,14 +275,14 @@ src/
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
     speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
-    ping.rs              the ping report: the average and loss, the summary, a chart of every ping, a row a ping
+    ping.rs              the ping report: the loss, the summary, a row a host, a chart a host
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
-    ping.rs              the ping screen: the totals, a row a ping, a graph of the round trips
+    ping.rs              the ping screen: each host's totals, a row a ping, a graph a host
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```

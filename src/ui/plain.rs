@@ -152,34 +152,66 @@ pub fn run_words(run: &Run) -> [String; 6] {
     ]
 }
 
-/// Prints each ping as it comes back, then the totals once the last is in (with `count` 0, it
-/// pings until stopped, like the OS's own ping).
-pub fn ping(target: &Target, count: u32, wait: Duration) -> anyhow::Result<()> {
-    let events = pings::start(target.ip, count, wait).map_err(anyhow::Error::msg)?;
-    println!("# {}", ping_headline(target, count, wait));
-    println!("{:>5}  {:<8}  latency", "seq", "time");
-    let mut pings = Pings::default();
+/// Prints each ping as it comes back, then each host's totals once the last is in (with `count`
+/// 0, it pings until stopped, like the OS's own ping). With several hosts each row says which.
+pub fn ping(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()> {
+    let ips: Vec<Ipv4Addr> = targets.iter().map(|target| target.ip).collect();
+    let events = pings::start(&ips, count, wait).map_err(anyhow::Error::msg)?;
+    println!("# {}", ping_headline(targets, count, wait));
+    // The host column, only when there is more than one.
+    let labels = ping_labels(targets);
+    let host = |label: &str| match targets.len() {
+        1 => String::new(),
+        _ => format!("{label:<width$}  ", width = labels[0].chars().count()),
+    };
+    println!("{:>5}  {:<8}  {}latency", "seq", "time", host("host"));
+    let mut pings: Vec<Pings> = targets.iter().map(|_| Pings::default()).collect();
     for ping in events {
         let [seq, time, latency] = ping_words(&ping);
-        println!("{seq:>5}  {time:<8}  {latency}");
-        pings.pings.push(ping);
+        println!("{seq:>5}  {time:<8}  {}{latency}", host(&labels[ping.host]));
+        pings[ping.host].pings.push(ping);
     }
-    println!("# {}", ping_totals(&pings));
+    for line in ping_totals_lines(targets, &pings) {
+        println!("# {line}");
+    }
     Ok(())
 }
 
-/// `ping gateway (192.168.1.1) · 10 pings · 500 ms apart`
-pub fn ping_headline(target: &Target, count: u32, wait: Duration) -> String {
+/// `ping gateway (192.168.1.1) · 10 pings · 500 ms apart`, or `ping 3 hosts · ...`
+pub fn ping_headline(targets: &[Target], count: u32, wait: Duration) -> String {
     let pings = match count {
         0 => "until stopped".to_string(),
         1 => "1 ping".to_string(),
         count => format!("{count} pings"),
     };
-    format!(
-        "ping {} · {pings} · {} ms apart",
-        target.label(),
-        wait.as_millis()
-    )
+    let hosts = match targets {
+        [target] => target.label(),
+        _ => format!("{} hosts", targets.len()),
+    };
+    format!("ping {hosts} · {pings} · {} ms apart", wait.as_millis())
+}
+
+/// Each host's label, padded to the longest so the columns after it line up.
+pub fn ping_labels(targets: &[Target]) -> Vec<String> {
+    let labels: Vec<String> = targets.iter().map(Target::label).collect();
+    let width = labels.iter().map(|label| label.chars().count()).max();
+    labels
+        .iter()
+        .map(|label| format!("{label:<width$}", width = width.unwrap_or_default()))
+        .collect()
+}
+
+/// Each host's totals, led by its label when there are several.
+pub fn ping_totals_lines(targets: &[Target], pings: &[Pings]) -> Vec<String> {
+    let labels = ping_labels(targets);
+    labels
+        .iter()
+        .zip(pings)
+        .map(|(label, pings)| match targets.len() {
+            1 => ping_totals(pings),
+            _ => format!("{label} · {}", ping_totals(pings)),
+        })
+        .collect()
 }
 
 /// A ping's number, time and round trip (or why nothing came back) as the printed tables write
@@ -192,13 +224,12 @@ pub fn ping_words(ping: &Ping) -> [String; 3] {
     [ping.seq.to_string(), ping.time.clone(), latency]
 }
 
-/// `10 sent · 9 back · 1 lost (10.0%) · min 0.41 · avg 1.10 · max 3.20 · jitter 0.30 ms`
+/// `10 sent · 1 lost (10.0%) · min 0.41 · avg 1.10 · max 3.20 · jitter 0.30 ms`
 pub fn ping_totals(pings: &Pings) -> String {
     let lost = pings.lost();
     let mut words = format!(
-        "{} sent · {} back · {lost} lost ({:.1}%)",
+        "{} sent · {lost} lost ({:.1}%)",
         pings.pings.len(),
-        pings.pings.len() - lost,
         pings.loss()
     );
     if let (Some(min), Some(average), Some(max)) = (pings.min(), pings.average(), pings.max()) {

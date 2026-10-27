@@ -58,7 +58,11 @@ mod unix {
     use socket2::{Domain, Protocol, Socket, Type};
     use std::io::ErrorKind;
     use std::net::{Ipv4Addr, UdpSocket};
+    use std::sync::atomic::{AtomicU16, Ordering};
     use std::time::{Duration, Instant};
+
+    /// Pingers made so far, to set each one's identifier apart.
+    static NEXT: AtomicU16 = AtomicU16::new(0);
 
     pub struct Pinger {
         /// An ICMP datagram socket, which std's UDP socket can send and receive on as it is.
@@ -79,7 +83,9 @@ mod unix {
             )?;
             Ok(Pinger {
                 socket: socket.into(),
-                id: std::process::id() as u16,
+                // macOS hands every ping socket every reply, so each pinger of this process
+                // (one a host) gets an identifier of its own.
+                id: (std::process::id() as u16).wrapping_add(NEXT.fetch_add(1, Ordering::Relaxed)),
             })
         }
 

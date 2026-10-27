@@ -1,5 +1,5 @@
-//! The pings themselves: `count` of them (or until stopped), `wait` apart, on a thread of their
-//! own, and what the replies add up to. The screen hears each `Ping` as it comes back.
+//! The pings themselves: `count` of them (or until stopped), `wait` apart, on a thread a host,
+//! and what the replies add up to. The screen hears each `Ping` as it comes back.
 
 use super::echo::Pinger;
 use crate::speedtest::runs::jitter;
@@ -11,6 +11,8 @@ use std::time::Duration;
 pub const TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct Ping {
+    /// Which of the hosts asked for it went to, from 0.
+    pub host: usize,
     /// 1 for the first.
     pub seq: u32,
     /// When it went out, like `14:05:09`.
@@ -19,7 +21,7 @@ pub struct Ping {
     pub reply: Result<f32, String>,
 }
 
-/// Every ping so far.
+/// Every ping so far to one host.
 #[derive(Default)]
 pub struct Pings {
     pub pings: Vec<Ping>,
@@ -65,42 +67,52 @@ impl Pings {
     }
 }
 
-/// Starts pinging `ip` on a thread of its own, `count` times (0: until the receiver is dropped),
-/// `wait` between one reply (or timeout) and the next ping, and hands back the stream of pings.
-/// Fails at once when this machine won't let it ping.
-pub fn start(ip: Ipv4Addr, count: u32, wait: Duration) -> Result<Receiver<Ping>, String> {
-    let pinger = Pinger::new()?;
+/// Starts pinging each of `ips` on a thread of its own, `count` times (0: until the receiver is
+/// dropped), `wait` between one reply (or timeout) and the next ping, and hands back the stream of
+/// pings from all of them. It ends once every host's last ping is in. Fails at once when this
+/// machine won't let it ping.
+pub fn start(ips: &[Ipv4Addr], count: u32, wait: Duration) -> Result<Receiver<Ping>, String> {
     let (tx, rx) = channel();
     let last = if count == 0 { u32::MAX } else { count };
-    std::thread::spawn(move || {
-        for seq in 1..=last {
-            if seq > 1 {
-                std::thread::sleep(wait);
+    for (host, ip) in ips.iter().copied().enumerate() {
+        let pinger = Pinger::new()?;
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            for seq in 1..=last {
+                if seq > 1 {
+                    std::thread::sleep(wait);
+                }
+                let time = chrono::Local::now().format("%H:%M:%S").to_string();
+                let reply = pinger
+                    .echo(ip, seq as u16, TIMEOUT)
+                    .map(|took| took.as_secs_f32() * 1000.0);
+                let ping = Ping {
+                    host,
+                    seq,
+                    time,
+                    reply,
+                };
+                if tx.send(ping).is_err() {
+                    return;
+                }
             }
-            let time = chrono::Local::now().format("%H:%M:%S").to_string();
-            let reply = pinger
-                .echo(ip, seq as u16, TIMEOUT)
-                .map(|took| took.as_secs_f32() * 1000.0);
-            if tx.send(Ping { seq, time, reply }).is_err() {
-                return;
-            }
-        }
-    });
+        });
+    }
     Ok(rx)
 }
 
-/// Pings `count` times and hands back every ping once the last is in, for the outputs that print.
-/// `each` hears about every ping as it comes back.
+/// Pings `count` times and hands back each host's pings once the last is in, for the outputs
+/// that print. `each` hears about every ping as it comes back.
 pub fn finished(
-    ip: Ipv4Addr,
+    ips: &[Ipv4Addr],
     count: u32,
     wait: Duration,
     mut each: impl FnMut(&Ping),
-) -> Result<Pings, String> {
-    let mut pings = Pings::default();
-    for ping in start(ip, count, wait)? {
+) -> Result<Vec<Pings>, String> {
+    let mut pings: Vec<Pings> = ips.iter().map(|_| Pings::default()).collect();
+    for ping in start(ips, count, wait)? {
         each(&ping);
-        pings.pings.push(ping);
+        pings[ping.host].pings.push(ping);
     }
     Ok(pings)
 }
@@ -114,6 +126,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, reply)| Ping {
+                host: 0,
                 seq: i as u32 + 1,
                 time: "14:05:09".to_string(),
                 reply: reply.ok_or_else(|| "timed out".to_string()),

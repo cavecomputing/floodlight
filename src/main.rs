@@ -68,11 +68,13 @@ enum Mode {
         #[arg(long, value_name = "SECONDS", default_value_t = 5)]
         wait: u64,
     },
-    /// Ping a host over and over: every round trip, the ones lost, min, average, max and jitter.
+    /// Ping up to five hosts over and over: every round trip, the ones lost, min, average, max
+    /// and jitter.
     #[command(name = "--ping")]
     Ping {
-        /// A name or an IPv4 address. The gateway when none is given.
-        host: Option<String>,
+        /// Up to five names or IPv4 addresses, pinged side by side. The gateway when none is given.
+        #[arg(value_name = "HOST", num_args = 0..=5)]
+        hosts: Vec<String>,
         /// How many pings. 0, the default, keeps pinging until you quit (10 for --report, which
         /// needs an end).
         #[arg(long, value_name = "N")]
@@ -119,21 +121,27 @@ fn main() -> anyhow::Result<()> {
             }
             ui::speedtest::run(count, wait)
         }
-        Mode::Ping { host, count, wait } => {
-            let target = ping::target::choose(host.as_deref())?;
+        Mode::Ping { hosts, count, wait } => {
+            let targets = match hosts.as_slice() {
+                [] => vec![ping::target::choose(None)?],
+                hosts => hosts
+                    .iter()
+                    .map(|host| ping::target::choose(Some(host)))
+                    .collect::<anyhow::Result<_>>()?,
+            };
             let wait = Duration::from_millis(wait);
             if let Some(path) = &args.report {
                 let count = count.unwrap_or(10);
                 if count == 0 {
                     bail!("a report needs pings that end: give --count 1 or more");
                 }
-                return report::ping::write(path, &target, count, wait);
+                return report::ping::write(path, &targets, count, wait);
             }
             let count = count.unwrap_or(0);
             if args.plain {
-                return ui::plain::ping(&target, count, wait);
+                return ui::plain::ping(&targets, count, wait);
             }
-            ui::ping::run(&target, count, wait)
+            ui::ping::run(&targets, count, wait)
         }
     }
 }
@@ -150,18 +158,29 @@ mod tests {
 
     #[test]
     fn modes_are_typed_as_flags() {
-        let args =
-            Args::try_parse_from([brand::BIN, "--plain", "--ping", "1.1.1.1", "--wait", "250"])
-                .expect("a ping with its options");
+        let args = Args::try_parse_from([
+            brand::BIN,
+            "--plain",
+            "--ping",
+            "1.1.1.1",
+            "192.168.1.1",
+            "--wait",
+            "250",
+        ])
+        .expect("a ping with its options");
         assert!(args.plain);
         assert!(matches!(
             args.mode,
             Mode::Ping {
-                host: Some(_),
+                ref hosts,
                 count: None,
                 wait: 250
-            }
+            } if hosts.len() == 2
         ));
+        let six = [
+            "--ping", "1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6",
+        ];
+        assert!(Args::try_parse_from([brand::BIN].into_iter().chain(six)).is_err());
         assert!(Args::try_parse_from([brand::BIN, "--wireless", "--count", "3"]).is_err());
         assert!(
             Args::try_parse_from([brand::BIN, "--sweep", "--report", "a.pdf", "--plain"]).is_err()

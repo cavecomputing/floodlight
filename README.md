@@ -11,7 +11,7 @@ Floodlight is a small terminal tool that looks at the network this machine is on
 device on your subnet, with its MAC, maker and name, so the camera or switch you just plugged in
 turns up by the MAC on its label. And it lists the WiFi networks around you and how their channels
 crowd each other, so you can pick the quietest one. And it tests the internet connection's
-download, upload, latency and jitter against Cloudflare. And it pings a host over and over,
+download, upload, latency and jitter against Cloudflare. And it pings up to five hosts over and over,
 graphing every round trip and counting the ones lost.
 
 Each feature is a mode with its own flag. `floodlight` on its own lists the modes and the options
@@ -22,7 +22,7 @@ they share; `floodlight --<mode> --help` shows that mode's own options.
 | [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
 | [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
 | [`--speedtest`](#--speedtest) | download, upload, latency and jitter, once or `--count` times |
-| [`--ping`](#--ping) | a host pinged over and over: every round trip, the ones lost, min, average, max and jitter |
+| [`--ping`](#--ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
 
 | Shared option | What it does |
 |---|---|
@@ -31,7 +31,7 @@ they share; `floodlight --<mode> --help` shows that mode's own options.
 
 ```bash
 floodlight                    # the modes and the shared options
-floodlight --ping --help      # --ping's own options: the host, --count, --wait
+floodlight --ping --help      # --ping's own options: the hosts, --count, --wait
 ```
 
 The help is in colour in a terminal and plain when piped or when `NO_COLOR` is set.
@@ -154,25 +154,28 @@ hundred megabytes on a fast line.
 
 ## --ping
 
-Pings a host over and over and shows every reply as it comes back, the ones lost (and why:
-`timed out`, `unreachable`), and the totals so far: sent, back, lost, and the minimum, average and
-maximum round trip with the jitter (how much one differs from the next). A graph along the bottom
-plots each round trip, a gap where one was lost, so a link that drops out or slows down shows at a
-glance. With no host it pings this machine's gateway (its router).
+Pings up to five hosts side by side, over and over, and shows every reply as it comes back, the
+ones lost (and why: `timed out`, `unreachable`), and each host's totals so far: sent, lost, and the
+minimum, average and maximum round trip with the jitter (how much one differs from the next).
+Each host gets a graph along the bottom that plots its round trips, a gap where one was lost, so a
+link that drops out or slows down shows at a glance, and which hop it is shows by which graph has
+the gaps. With no host it pings this machine's gateway (its router).
 
 ```
-  # ping gateway (192.168.1.1) · until stopped · 500 ms apart
-  # 42 sent · 41 back · 1 lost (2.4%) · min 0.61 · avg 1.12 · max 4.80 · jitter 0.35 ms
+  # ping 2 hosts · until stopped · 500 ms apart
+  # gateway (192.168.1.1) · 42 sent · 1 lost (2.4%) · min 0.61 · avg 1.12 · max 4.80 · jitter 0.35 ms
+  # 1.1.1.1               · 42 sent · 0 lost (0.0%) · min 9.80 · avg 11.02 · max 14.10 · jitter 0.90 ms
 
-  # seq     time      latency
-    40      14:05:29  0.98 ms
-    41      14:05:30  timed out
-    42      14:05:32  1.04 ms
+  # seq     time      host                   latency
+    41      14:05:30  gateway (192.168.1.1)  timed out
+    41      14:05:30  1.1.1.1                10.85 ms
+    42      14:05:32  gateway (192.168.1.1)  1.04 ms
 ```
 
 ```bash
 floodlight --ping                       # the gateway, until you quit; ^r starts over
 floodlight --ping 1.1.1.1               # a host by address or by name
+floodlight --ping 192.168.1.1 1.1.1.1   # up to five hosts at once, a graph each
 floodlight --ping 1.1.1.1 --count 100   # a hundred pings, then stop (0 means until you quit)
 floodlight --ping --wait 1000           # a second between pings (500 ms by default)
 floodlight --ping 1.1.1.1 --count 20 --plain       # print each ping as it comes back, then the totals
@@ -205,9 +208,10 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   download and upload, then the latency, jitter, the Cloudflare data center and the internet
   provider, a summary of the range across runs, a chart each of download, upload and latency
   across the runs (when there are several) to show the trend, and every run in a table.
-- The ping report pings `--count` times (10 unless told; it needs an end, so not 0) and leads
-  with the average round trip and the share lost, then the minimum, maximum and jitter, a summary
-  that names the pings lost, a chart of every round trip, and every ping in a table.
+- The ping report pings each host `--count` times (10 unless told; it needs an end, so not 0)
+  and leads with the share lost (and for one host the average, minimum, maximum and jitter), a
+  summary that names the pings lost, a table of each host's totals when there are several, and a
+  chart of each host's round trips. Every ping is in the charts, so there is no table of them.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.

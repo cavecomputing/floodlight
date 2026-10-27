@@ -3,6 +3,7 @@
 use anyhow::{Context, bail};
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 
+#[derive(Clone)]
 pub struct Target {
     pub ip: Ipv4Addr,
     /// `gateway`, or the name typed when it wasn't an address.
