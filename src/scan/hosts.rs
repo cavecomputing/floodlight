@@ -129,7 +129,10 @@ impl Query {
     pub fn new(typed: &str) -> Query {
         let text = typed.trim().to_lowercase();
         let hex: String = text.chars().filter(char::is_ascii_hexdigit).collect();
+        // Digits and dots alone are part of an IP address (`1.20`), not a switch-style MAC.
+        let ip_like = text.contains('.') && text.chars().all(|c| c.is_ascii_digit() || c == '.');
         let mac_like = !hex.is_empty()
+            && !ip_like
             && text
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() || matches!(c, ':' | '-' | '.'));
@@ -275,6 +278,8 @@ mod tests {
     fn finds_an_address_fragment() {
         let hit = camera().hit(&Query::new("1.10")).unwrap();
         assert_eq!(hit, Hit::new(Column::Ip, 8, 12));
+        // Not the `a5:9c` in its MAC: digits and dots are an address.
+        assert_eq!(camera().hit(&Query::new("5.9")), None);
     }
 
     #[test]
