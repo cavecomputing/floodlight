@@ -296,8 +296,11 @@ impl Screen<'_> {
             Constraint::Length(30),
             Constraint::Length(17),
         ];
+        // The bssid goes first when the window is narrow, so the names keep room to be read:
+        // with it, 131 columns left seven for the ssid.
+        let shown = if area.width < 150 { 8 } else { 9 };
         let header = Row::new(titles.map(|title| Cell::from(Span::styled(title, roles.comment()))));
-        let table = Table::new(rows, widths)
+        let table = Table::new(rows, &widths[..shown])
             .header(header)
             .column_spacing(2)
             .highlight_symbol(" ".repeat(INSET as usize + 2))
