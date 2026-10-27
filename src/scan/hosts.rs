@@ -21,7 +21,7 @@ pub struct Host {
     /// `aa:bb:cc:dd:ee:ff`, from the ARP table.
     pub mac: Option<String>,
     pub vendor: Vendor,
-    /// From reverse DNS, which on a home or office LAN usually means mDNS (`.local`) or the router.
+    /// What the host calls itself over mDNS (`.local`), or failing that what reverse DNS says.
     pub name: Option<String>,
     /// The ping's round trip. None when the host never answered a ping (it may still have a MAC).
     pub latency_ms: Option<f32>,

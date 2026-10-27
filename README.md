@@ -75,10 +75,10 @@ overlap. The top line names the quietest channel in each band.
 ```
   # 8 networks · quietest 2.4 GHz 11 · 5 GHz 44
 
-  # ssid          ch   band     width    signal   neighbours          air
-    Home · joined 6    2.4 GHz  —        -59 dBm  1 same · 1 overlap  ···──●──·····
-    Neighbour     6    2.4 GHz  —        -80 dBm  1 same · 1 overlap  ···──●──·····
-    Cafe Guest    8    2.4 GHz  —        -73 dBm  3 overlap           ·····──●──···
+  # ssid          ch   band     width    signal   trend          neighbours          air
+    Home · joined 6    2.4 GHz  —        -59 dBm  +2 · peak -57  1 same · 1 overlap  ···──●──·····
+    Neighbour     6    2.4 GHz  —        -80 dBm  ±0 · peak -78  1 same · 1 overlap  ···──●──·····
+    Cafe Guest    8    2.4 GHz  —        -73 dBm  new            3 overlap           ·····──●──···
 ```
 
 ```bash

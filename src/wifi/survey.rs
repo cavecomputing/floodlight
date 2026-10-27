@@ -25,7 +25,7 @@ const SCAN_WAIT: Duration = Duration::from_secs(3);
 pub struct Network {
     /// None for a hidden network.
     pub ssid: Option<String>,
-    /// `aa:bb:cc:dd:ee:ff`. None on macOS, which doesn't say.
+    /// `aa:bb:cc:dd:ee:ff`. None when the OS didn't say.
     pub bssid: Option<String>,
     /// The centre of its primary channel.
     pub freq_mhz: u32,
