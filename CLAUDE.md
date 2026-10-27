@@ -235,7 +235,8 @@ src/
     sweep.rs             the sweep itself: pings at once, the ARP table on a timer, makers and
                          names filled in; the Event enum the screen hears
     ping.rs              one address: the UDP poke and the system ping (IcmpSendEcho on Windows), and reading its round trip
-    arp.rs               the OS's ARP table in its three formats (arp -an, ip neigh, Windows arp -a)
+    arp.rs               the OS's ARP table in its three formats (arp -an, ip neigh, Windows arp -a),
+                         and whether Linux has heard from each entry lately
     mdns.rs              a reverse lookup over mDNS: the PTR question packet and reading the reply
     vendor.rs            the maker from a MAC's first three bytes; randomized addresses; tidied names
     hosts.rs             a Host row, the Hosts table built from Events, MAC normalising, and how a
