@@ -20,6 +20,10 @@ struct Args {
     /// Survey the WiFi here: every network heard, how the channels overlap, the quietest one.
     #[arg(long)]
     wireless: bool,
+    /// With --wireless: keep scanning, and show how each access point's signal moves (for
+    /// walking around to find interference or a rogue access point).
+    #[arg(long, conflicts_with_all = ["sweep", "plain"])]
+    live: bool,
     /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
     /// Defaults to the one this machine is on.
     #[arg(conflicts_with = "wireless")]
@@ -39,7 +43,7 @@ fn main() -> anyhow::Result<()> {
         if args.plain {
             return ui::plain::wireless(&runtime);
         }
-        return ui::wireless::run(&runtime, os::settings::load());
+        return ui::wireless::run(&runtime, os::settings::load(), args.live);
     }
     let subnet = scan::subnet::choose(args.subnet.as_deref())?;
     if args.plain || args.find.is_some() {

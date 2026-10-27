@@ -123,6 +123,7 @@ cargo run -- --sweep --plain           # print the table and exit (for pipes, sc
 cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac, maker or name fragment
 cargo run -- --wireless                # the WiFi networks heard here and how their channels overlap
 cargo run -- --wireless --plain        # the same as a table on stdout
+cargo run -- --wireless --live         # keep scanning, with each access point's signal trend
 
 cargo test                        # run every test
 cargo test mac                    # run only tests whose name contains "mac"
@@ -171,6 +172,8 @@ background, and fills the table as answers come in. Ctrl+R sweeps again.
 
 `--wireless`: `floodlight --wireless` opens a screen of every network heard, asks the OS's own
 tool for the list once in the background, and fills in when it answers; Ctrl+R asks again.
+With `--live` it asks again a second after each answer, keeping the last rows up meanwhile, and
+`wifi/trend.rs` tracks each access point's signal across scans.
 
 There is no daemon, no
 state between runs beyond `settings.toml`.
@@ -208,13 +211,14 @@ src/
     helper.swift         the macOS helper app: names need Location, which only an app can be given
     channels.rs          channels as frequencies: bands, the slice a network fills, who shares or
                          overlaps it, the quietest channel, the strip that draws a band
+    trend.rs             each access point's signal across scans: change and peak, for --live
   os/                    the OS outside the network
     settings.rs          settings.toml: load, defaults, atomic save
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   ui/                    everything on screen
     theme.rs             Gruvbox palette roles as ratatui styles
     app.rs               the sweep's screen: state, key handling, the prompt and the table
-    wireless.rs          the wireless screen: the networks, their crowds and strips
+    wireless.rs          the wireless screen: the networks, their crowds and strips, live or once
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find
 ```

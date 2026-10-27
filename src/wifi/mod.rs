@@ -3,3 +3,4 @@
 
 pub mod channels;
 pub mod survey;
+pub mod trend;

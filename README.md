@@ -82,7 +82,14 @@ overlap. The top line names the quietest channel in each band.
 ```bash
 floodlight --wireless           # the screen; ^r scans again
 floodlight --wireless --plain   # print the table and exit
+floodlight --wireless --live    # keep scanning, for walking around
 ```
+
+`--live` scans again as soon as each scan is in and adds a trend column: the dBm each access
+point gained or lost since the scan before, and the strongest it has been. Walk towards a rogue
+access point and its number climbs. The highlighted row follows its access point as rows
+re-sort. How fresh each scan is depends on the OS: iwd and macOS scan every time; NetworkManager
+and Windows may refuse a new scan within a few seconds of the last and repeat it.
 
 Read from the OS's own tool, no root: `nmcli` (NetworkManager) or `iw` on Linux (with iwd, as on
 Omarchy, install `iw`; iwd is asked for a fresh scan first), `netsh` on Windows. macOS hides

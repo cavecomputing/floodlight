@@ -69,6 +69,8 @@ pub async fn survey() -> Result<Vec<Network>, String> {
 /// (iwd setups such as Omarchy), after asking iwd for a fresh one. iw's own scan needs root,
 /// but reading the results doesn't.
 async fn linux() -> Result<Vec<Network>, String> {
+    // Ask for a fresh scan first; NetworkManager refuses one too soon after the last, which is fine.
+    let _ = output("nmcli", &["device", "wifi", "rescan"]).await;
     let fields = "IN-USE,BSSID,SSID,FREQ,SIGNAL";
     if let Some(text) = output("nmcli", &["-t", "-f", fields, "device", "wifi", "list"]).await {
         return Ok(parse_nmcli(&text));
