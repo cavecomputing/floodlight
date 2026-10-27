@@ -166,12 +166,15 @@ pub fn jitter(round_trips: &[f32]) -> Option<f32> {
     (!steps.is_empty()).then(|| steps.iter().sum::<f32>() / steps.len() as f32)
 }
 
-/// The value `share` of the way up the sorted values (0.5 is the median).
+/// The value `share` of the way up the sorted values (0.5 is the median), part way between the
+/// two nearest when it falls between them, as Cloudflare's page works it out.
 fn percentile(values: &[f32], share: f32) -> Option<f32> {
     let mut sorted = values.to_vec();
     sorted.sort_by(f32::total_cmp);
-    let last = sorted.len().checked_sub(1)?;
-    Some(sorted[(last as f32 * share).round() as usize])
+    let place = sorted.len().checked_sub(1)? as f32 * share;
+    let below = sorted[place.floor() as usize];
+    let above = sorted[place.ceil() as usize];
+    Some(below + (above - below) * place.fract())
 }
 
 /// The top of a chart's scale: 1, 2 or 5 times a power of ten, at or just above `most`.
@@ -324,6 +327,8 @@ mod tests {
         assert_eq!(percentile(&[3.0, 1.0, 2.0], 0.5), Some(2.0));
         let speeds: Vec<f32> = (1..=11).map(|n| n as f32 * 10.0).collect();
         assert_eq!(percentile(&speeds, 0.9), Some(100.0));
+        // An even count's middle is halfway between the two middle values.
+        assert_eq!(percentile(&[250.0, 200.0], 0.5), Some(225.0));
     }
 
     #[test]
@@ -341,7 +346,7 @@ mod tests {
             pings: vec![10.0, 12.0, 11.0, 15.0],
             ..Run::default()
         };
-        assert_eq!(run.latency(), Some(12.0));
+        assert_eq!(run.latency(), Some(11.5));
         assert_eq!(run.jitter(), Some(7.0 / 3.0));
         assert_eq!(Run::default().jitter(), None);
     }
