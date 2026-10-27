@@ -80,6 +80,7 @@ async fn run(net: Ipv4Net, tx: UnboundedSender<Event>) {
     let vendors = Vendors::load();
 
     let mut known: HashMap<Ipv4Addr, String> = HashMap::new();
+    let mut names = JoinSet::new();
     loop {
         sleep(ARP_EVERY).await;
         if tx.is_closed() {
@@ -101,13 +102,16 @@ async fn run(net: Ipv4Net, tx: UnboundedSender<Event>) {
                 vendor,
             });
             if known.insert(ip, mac).is_none() {
-                tokio::spawn(name(ip, tx.clone()));
+                names.spawn(name(ip, tx.clone()));
             }
         }
         if finishing {
             break;
         }
     }
+    // The hosts found last are still being asked their names; the sweep isn't done, and the
+    // printed outputs can't stop reading, until they have answered or given up.
+    while names.join_next().await.is_some() {}
     let _ = tx.send(Event::Done {
         took: started.elapsed(),
     });
