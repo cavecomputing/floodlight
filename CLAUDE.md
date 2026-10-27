@@ -300,8 +300,10 @@ at the bottom of the file they test.
   its own, so it sits in the terminal rather than as a block on it, and the terminal's theme is
   its theme (there is no theme switch). `ui/theme.rs` maps the design system's roles onto the
   terminal's 16-colour palette: `bg-surface` and `bg-page` are the terminal's background,
-  `fg-subtle`, `border` and the band are bright black, `accent-text` yellow, `accent-cool` blue,
-  aqua cyan, `accent-warm` magenta. **No red.** Colours come from roles, never hex or a named
+  `fg-subtle` and `border` are the text colour made faint, the band is bright black with its row
+  bold, `accent-text` yellow, `accent-cool` blue, aqua cyan, `accent-warm` magenta. **No red.**
+  **No bright black for text**: Solarized Dark (common on macOS) makes it the background, so
+  anything drawn in it vanishes. Colours come from roles, never hex or a named
   colour at the call site. Every status also carries a word (`no reply`, `copy failed: ...`),
   never colour alone. The printed report keeps the Gruvbox light palette's real colours.
 - **The font is the terminal's.** A desktop app of this brand bundles JetBrains Mono NL Nerd Font;

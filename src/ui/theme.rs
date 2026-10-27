@@ -2,7 +2,7 @@
 //! terminal's own colours, and the Gruvbox light palette the printed report uses. Colours
 //! anywhere else come from `Roles`, never hex.
 
-use clap::builder::styling::{AnsiColor, Styles};
+use clap::builder::styling::{AnsiColor, Style as HelpStyle, Styles};
 use ratatui::style::{Color, Modifier, Style};
 
 pub struct Roles {
@@ -31,15 +31,17 @@ pub struct Roles {
 
 /// The screen, in the terminal's own colours: its background and text untouched, so the screen
 /// sits in the terminal instead of as a block on it, and its 16-colour palette (which the
-/// terminal's theme sets) for the accents. Bright black is the terminal's dim colour.
+/// terminal's theme sets) for the accents. The subtle text and the border are the plain colour
+/// made faint (see `comment` and `rule`), not bright black: Solarized Dark, a common theme on
+/// macOS, makes bright black its background, which hid every comment, heading and hint.
 pub const TERMINAL: Roles = Roles {
     bg_page: Color::Reset,
     bg_surface: Color::Reset,
     bg_inset: Color::DarkGray,
-    border: Color::DarkGray,
+    border: Color::Reset,
     fg: Color::Reset,
     fg_muted: Color::Reset,
-    fg_subtle: Color::DarkGray,
+    fg_subtle: Color::Reset,
     accent_text: Color::Yellow,
     accent_cool: Color::Blue,
     // The palette has no orange, and red is out.
@@ -58,7 +60,7 @@ pub const HELP: Styles = Styles::styled()
     .valid(AnsiColor::Cyan.on_default())
     .invalid(AnsiColor::Magenta.on_default())
     .error(AnsiColor::Magenta.on_default().bold())
-    .context(AnsiColor::BrightBlack.on_default());
+    .context(HelpStyle::new().dimmed());
 
 /// The Gruvbox light theme, for the printed report.
 pub const LIGHT: Roles = Roles {
@@ -84,15 +86,26 @@ impl Roles {
         Style::new().fg(self.fg_muted)
     }
 
-    /// A `#` line, a placeholder, a dash for nothing.
+    /// A `#` line, a placeholder, a dash for nothing. Faint, so it is dimmer than the text in
+    /// any theme (a terminal without faint shows it plain).
     pub fn comment(&self) -> Style {
-        Style::new().fg(self.fg_subtle)
+        Style::new().fg(self.fg_subtle).add_modifier(Modifier::DIM)
     }
 
-    /// The band under the active row. Its text all takes the plain colour: the dim one that
-    /// comments use is the band's own colour and would vanish into it.
+    /// The line above the status bar and the axes of a graph.
+    pub fn rule(&self) -> Style {
+        Style::new().fg(self.border).add_modifier(Modifier::DIM)
+    }
+
+    /// The band under the active row. Its text all takes the plain colour, not faint: the band
+    /// is bright black and faint text could vanish into it. Bold too, so the row still stands
+    /// out in a theme whose bright black is its background.
     pub fn band(&self) -> Style {
-        Style::new().bg(self.bg_inset).fg(self.fg)
+        Style::new()
+            .bg(self.bg_inset)
+            .fg(self.fg)
+            .add_modifier(Modifier::BOLD)
+            .remove_modifier(Modifier::DIM)
     }
 
     pub fn active(&self) -> Style {

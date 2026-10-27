@@ -24,10 +24,7 @@ pub fn draw(frame: &mut Frame, rule: Rect, bar: Rect, roles: &Roles, left: Line,
     frame.render_widget(Block::new().style(page), rule);
     frame.render_widget(Block::new().style(page), bar);
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            "─".repeat(rule.width as usize),
-            Style::new().fg(roles.border),
-        )),
+        Paragraph::new(Span::styled("─".repeat(rule.width as usize), roles.rule())),
         rule,
     );
 

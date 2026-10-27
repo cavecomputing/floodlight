@@ -256,12 +256,7 @@ pub fn graph(
     buffer.set_string(area.x, first, format!("{top:>5}"), roles.comment());
     buffer.set_string(area.x, last, format!("{:>5}", 0), roles.comment());
     let baseline = "─".repeat(plot_width as usize);
-    buffer.set_string(
-        area.x + SCALE,
-        last,
-        baseline,
-        Style::new().fg(roles.border),
-    );
+    buffer.set_string(area.x + SCALE, last, baseline, roles.rule());
     for (i, value) in shown.iter().enumerate() {
         if let Some(value) = value {
             let steps = (value / top * (PLOT_ROWS - 1) as f32).round() as u16;
