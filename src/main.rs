@@ -11,110 +11,160 @@ mod ui;
 mod wifi;
 
 use anyhow::bail;
-use clap::{ArgGroup, Parser};
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Looks at the network around this machine. Pick a feature with its flag.
+/// Looks at the network around this machine. Pick a mode with its flag; `--<mode> --help` shows
+/// that mode's own options.
+// Each mode is a clap subcommand named as a flag, so `--ping --help` has a page of its own while
+// the command line keeps the `--ping` shape.
 #[derive(Parser)]
 #[command(name = brand::BIN, version, about, arg_required_else_help = true)]
-#[command(group(ArgGroup::new("feature").required(true).args(["sweep", "wireless", "speedtest", "ping"])))]
+#[command(
+    disable_help_subcommand = true,
+    subcommand_help_heading = "Modes",
+    subcommand_value_name = "MODE"
+)]
+#[command(styles = ui::theme::HELP)]
 struct Args {
-    /// Sweep a subnet: every address that answers, with its MAC, maker and name.
-    #[arg(long)]
-    sweep: bool,
-    /// Survey the WiFi here, scanning until you quit: every network heard, how its signal moves,
-    /// how the channels overlap, the quietest one.
-    #[arg(long)]
-    wireless: bool,
-    /// Test the internet connection against Cloudflare: download, upload, latency and jitter.
-    #[arg(long)]
-    speedtest: bool,
-    /// Ping a host over and over: every reply and its round trip, the ones lost, min, average,
-    /// max and jitter. A name or an address; the gateway when none is given.
-    #[arg(long, value_name = "HOST", num_args = 0..=1)]
-    ping: Option<Option<String>>,
-    /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
-    /// Defaults to the one this machine is on.
-    #[arg(conflicts_with_all = ["wireless", "speedtest", "ping"])]
-    subnet: Option<String>,
+    #[command(subcommand)]
+    mode: Mode,
     /// Print the table and exit instead of opening the screen.
-    #[arg(long)]
+    #[arg(long, global = true)]
     plain: bool,
-    /// Print only the hosts matching this ip, mac, maker or name fragment, then exit.
-    #[arg(long, value_name = "QUERY", conflicts_with_all = ["wireless", "speedtest", "ping"])]
-    find: Option<String>,
-    /// Write the sweep, survey, speed test or pings as a PDF report to this file, then exit.
-    #[arg(long, value_name = "FILE", conflicts_with = "plain")]
+    /// Write the result as a PDF report to this file, then exit.
+    #[arg(long, value_name = "FILE", global = true, conflicts_with = "plain")]
     report: Option<PathBuf>,
-    /// With --wireless --report: how many seconds to keep scanning before writing, so weak
-    /// networks that answer late make the report.
-    #[arg(
-        long,
-        value_name = "SECONDS",
-        default_value_t = 10,
-        requires = "report",
-        conflicts_with_all = ["sweep", "speedtest", "ping"]
-    )]
-    scan_for: u64,
-    /// With --speedtest: how many times to run it (1 by default). With --ping: how many pings;
-    /// 0, the default, keeps pinging until you quit (10 for --report, which needs an end).
-    #[arg(long, value_name = "N", conflicts_with_all = ["sweep", "wireless"])]
-    count: Option<u32>,
-    /// With --speedtest --count: seconds between runs (5 by default). With --ping: milliseconds
-    /// between one reply (or timeout) and the next ping (500 by default).
-    #[arg(long, value_name = "N", conflicts_with_all = ["sweep", "wireless"])]
-    wait: Option<u64>,
+}
+
+#[derive(Subcommand)]
+enum Mode {
+    /// Sweep a subnet: every address that answers, with its MAC, maker and name.
+    #[command(name = "--sweep")]
+    Sweep {
+        /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
+        /// Defaults to the one this machine is on.
+        subnet: Option<String>,
+        /// Print only the hosts matching this ip, mac, maker or name fragment, then exit.
+        #[arg(long, value_name = "QUERY")]
+        find: Option<String>,
+    },
+    /// Survey the WiFi here: every network heard, its signal and how the channels overlap.
+    #[command(name = "--wireless")]
+    Wireless {
+        /// With --report: how many seconds to keep scanning before writing, so weak networks
+        /// that answer late make the report.
+        #[arg(long, value_name = "SECONDS", default_value_t = 10)]
+        scan_for: u64,
+    },
+    /// Test the internet connection against Cloudflare: download, upload, latency and jitter.
+    #[command(name = "--speedtest")]
+    Speedtest {
+        /// How many times to run it.
+        #[arg(long, value_name = "N", default_value_t = 1)]
+        count: u32,
+        /// Seconds between runs.
+        #[arg(long, value_name = "SECONDS", default_value_t = 5)]
+        wait: u64,
+    },
+    /// Ping a host over and over: every round trip, the ones lost, min, average, max and jitter.
+    #[command(name = "--ping")]
+    Ping {
+        /// A name or an IPv4 address. The gateway when none is given.
+        host: Option<String>,
+        /// How many pings. 0, the default, keeps pinging until you quit (10 for --report, which
+        /// needs an end).
+        #[arg(long, value_name = "N")]
+        count: Option<u32>,
+        /// Milliseconds between one reply (or a timeout) and the next ping.
+        #[arg(long, value_name = "MS", default_value_t = 500)]
+        wait: u64,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let runtime = tokio::runtime::Runtime::new()?;
-    if args.wireless {
-        if let Some(path) = &args.report {
-            return report::wireless::write(&runtime, path, args.scan_for);
-        }
-        if args.plain {
-            return ui::plain::wireless(&runtime);
-        }
-        return ui::wireless::run(&runtime);
-    }
-    if args.speedtest {
-        let count = args.count.unwrap_or(1);
-        if count == 0 {
-            bail!("--count for --speedtest is how many runs: 1 or more");
-        }
-        let wait = Duration::from_secs(args.wait.unwrap_or(5));
-        if let Some(path) = &args.report {
-            return report::speedtest::write(path, count, wait);
-        }
-        if args.plain {
-            return ui::plain::speedtest(count, wait);
-        }
-        return ui::speedtest::run(count, wait);
-    }
-    if let Some(host) = &args.ping {
-        let target = ping::target::choose(host.as_deref())?;
-        let wait = Duration::from_millis(args.wait.unwrap_or(500));
-        if let Some(path) = &args.report {
-            let count = args.count.unwrap_or(10);
-            if count == 0 {
-                bail!("a report needs pings that end: give --count 1 or more");
+    match args.mode {
+        Mode::Sweep { subnet, find } => {
+            let subnet = scan::subnet::choose(subnet.as_deref())?;
+            if let Some(path) = &args.report {
+                return report::sweep::write(&runtime, subnet, find.as_deref(), path);
             }
-            return report::ping::write(path, &target, count, wait);
+            if args.plain || find.is_some() {
+                return ui::plain::run(&runtime, subnet, find.as_deref());
+            }
+            ui::app::run(&runtime, subnet)
         }
-        let count = args.count.unwrap_or(0);
-        if args.plain {
-            return ui::plain::ping(&target, count, wait);
+        Mode::Wireless { scan_for } => {
+            if let Some(path) = &args.report {
+                return report::wireless::write(&runtime, path, scan_for);
+            }
+            if args.plain {
+                return ui::plain::wireless(&runtime);
+            }
+            ui::wireless::run(&runtime)
         }
-        return ui::ping::run(&target, count, wait);
+        Mode::Speedtest { count, wait } => {
+            if count == 0 {
+                bail!("--count for --speedtest is how many runs: 1 or more");
+            }
+            let wait = Duration::from_secs(wait);
+            if let Some(path) = &args.report {
+                return report::speedtest::write(path, count, wait);
+            }
+            if args.plain {
+                return ui::plain::speedtest(count, wait);
+            }
+            ui::speedtest::run(count, wait)
+        }
+        Mode::Ping { host, count, wait } => {
+            let target = ping::target::choose(host.as_deref())?;
+            let wait = Duration::from_millis(wait);
+            if let Some(path) = &args.report {
+                let count = count.unwrap_or(10);
+                if count == 0 {
+                    bail!("a report needs pings that end: give --count 1 or more");
+                }
+                return report::ping::write(path, &target, count, wait);
+            }
+            let count = count.unwrap_or(0);
+            if args.plain {
+                return ui::plain::ping(&target, count, wait);
+            }
+            ui::ping::run(&target, count, wait)
+        }
     }
-    let subnet = scan::subnet::choose(args.subnet.as_deref())?;
-    if let Some(path) = &args.report {
-        return report::sweep::write(&runtime, subnet, args.find.as_deref(), path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn command_line_is_consistent() {
+        Args::command().debug_assert();
     }
-    if args.plain || args.find.is_some() {
-        return ui::plain::run(&runtime, subnet, args.find.as_deref());
+
+    #[test]
+    fn modes_are_typed_as_flags() {
+        let args =
+            Args::try_parse_from([brand::BIN, "--plain", "--ping", "1.1.1.1", "--wait", "250"])
+                .expect("a ping with its options");
+        assert!(args.plain);
+        assert!(matches!(
+            args.mode,
+            Mode::Ping {
+                host: Some(_),
+                count: None,
+                wait: 250
+            }
+        ));
+        assert!(Args::try_parse_from([brand::BIN, "--wireless", "--count", "3"]).is_err());
+        assert!(
+            Args::try_parse_from([brand::BIN, "--sweep", "--report", "a.pdf", "--plain"]).is_err()
+        );
     }
-    ui::app::run(&runtime, subnet)
 }

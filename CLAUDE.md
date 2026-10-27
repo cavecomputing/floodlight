@@ -118,6 +118,7 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
 
 ```bash
 cargo run                              # build (debug) and print the help: every feature is a flag
+cargo run -- --ping --help             # one mode's own options
 cargo run -- --sweep                   # sweep the subnet this machine is on
 cargo run -- --sweep 192.168.1.0/24    # sweep that subnet (everything after -- goes to the app)
 cargo run -- --sweep --plain           # print the table and exit (for pipes, scripts, a quick look)
@@ -171,7 +172,10 @@ suffix (`v0.2.0-rc.1`) becomes a pre-release.
 
 ## Architecture
 
-Each feature is a flag, and the command alone prints the help listing them.
+Each feature is a flag, and the command alone prints the help listing them. In clap each mode is
+a subcommand *named* `--sweep`, `--ping` and so on, so `floodlight --ping --help` shows only that
+mode's options while the command line keeps its flag shape; `--plain` and `--report` are global,
+shared by every mode. The help's colours are `HELP` in `ui/theme.rs` (clap drops them when piped).
 
 `--sweep`: `floodlight --sweep [subnet]` opens the screen, starts the sweep in the
 background, and fills the table as answers come in. Ctrl+R sweeps again.

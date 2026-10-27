@@ -2,6 +2,7 @@
 //! terminal's own colours, and the Gruvbox light palette the printed report uses. Colours
 //! anywhere else come from `Roles`, never hex.
 
+use clap::builder::styling::{AnsiColor, Styles};
 use ratatui::style::{Color, Modifier, Style};
 
 pub struct Roles {
@@ -45,6 +46,19 @@ pub const TERMINAL: Roles = Roles {
     accent_warm: Color::Magenta,
     accent_aqua: Color::Cyan,
 };
+
+/// The help, in the same terminal colours as the screen: headings yellow like the prompt, flags
+/// blue, values aqua, and mistakes warm (there is no red). clap leaves the colour out when the
+/// help goes to a pipe or a file, or when `NO_COLOR` is set.
+pub const HELP: Styles = Styles::styled()
+    .header(AnsiColor::Yellow.on_default().bold())
+    .usage(AnsiColor::Yellow.on_default().bold())
+    .literal(AnsiColor::Blue.on_default().bold())
+    .placeholder(AnsiColor::Cyan.on_default())
+    .valid(AnsiColor::Cyan.on_default())
+    .invalid(AnsiColor::Magenta.on_default())
+    .error(AnsiColor::Magenta.on_default().bold())
+    .context(AnsiColor::BrightBlack.on_default());
 
 /// The Gruvbox light theme, for the printed report.
 pub const LIGHT: Roles = Roles {

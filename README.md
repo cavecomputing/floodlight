@@ -14,15 +14,27 @@ crowd each other, so you can pick the quietest one. And it tests the internet co
 download, upload, latency and jitter against Cloudflare. And it pings a host over and over,
 graphing every round trip and counting the ones lost.
 
-Each feature has its own flag. `floodlight` on its own prints the help that lists them.
+Each feature is a mode with its own flag. `floodlight` on its own lists the modes and the options
+they share; `floodlight --<mode> --help` shows that mode's own options.
 
-| Flag | What it does |
+| Mode | What it does |
 |---|---|
 | [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
 | [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
 | [`--speedtest`](#--speedtest) | download, upload, latency and jitter, once or `--count` times |
 | [`--ping`](#--ping) | a host pinged over and over: every round trip, the ones lost, min, average, max and jitter |
-| [`--report FILE`](#--report) | any of them written as a PDF to hand a client or a manager |
+
+| Shared option | What it does |
+|---|---|
+| `--plain` | print the table and exit instead of opening the screen |
+| [`--report FILE`](#--report) | write the result as a PDF to hand a client or a manager, then exit |
+
+```bash
+floodlight                    # the modes and the shared options
+floodlight --ping --help      # --ping's own options: the host, --count, --wait
+```
+
+The help is in colour in a terminal and plain when piped or when `NO_COLOR` is set.
 
 It needs no root, uses the tools your OS already has, and runs on Linux, macOS and Windows.
 
