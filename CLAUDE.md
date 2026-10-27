@@ -124,6 +124,7 @@ cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac
 cargo run -- --wireless                # the WiFi networks heard here and how their channels overlap
 cargo run -- --wireless --plain        # the same as a table on stdout
 cargo run -- --sweep --report out.pdf  # one sweep written as a PDF report, then exit (--wireless too)
+cargo run -- --wireless --report out.pdf --scan-for 20  # scan 20 s before writing (default 10)
 cargo run -- --wireless --live         # keep scanning, with each access point's signal trend
 
 cargo test                        # run every test
