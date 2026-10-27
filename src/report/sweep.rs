@@ -124,7 +124,12 @@ fn summary(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> String {
     let count = |want: fn(&Vendor) -> bool| hosts.rows.values().filter(|h| want(&h.vendor)).count();
     let known = count(|vendor| matches!(vendor, Vendor::Known(_)));
     let randomized = count(|vendor| *vendor == Vendor::Randomized);
-    let unknown = count(|vendor| *vendor == Vendor::Unknown);
+    // Only a row with a MAC has a maker to look up; one found by ping alone has none.
+    let unknown = hosts
+        .rows
+        .values()
+        .filter(|h| h.mac.is_some() && h.vendor == Vendor::Unknown)
+        .count();
     let silent = hosts
         .rows
         .values()
