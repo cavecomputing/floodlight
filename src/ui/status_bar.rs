@@ -41,7 +41,7 @@ pub fn draw(frame: &mut Frame, rule: Rect, bar: Rect, roles: &Roles, left: Line,
 
     let room = (inner.width as usize).saturating_sub(taken + 3);
     let mut shown = hints.len();
-    while shown > 0 && hints[..shown].join(" · ").len() > room {
+    while shown > 0 && hints[..shown].join(" · ").chars().count() > room {
         shown -= 1;
     }
     if shown > 0 {
