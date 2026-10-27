@@ -365,11 +365,11 @@ pub fn parse_iw(text: &str) -> Vec<Network> {
 }
 
 /// The access point Windows is joined to, from `netsh wlan show interfaces`:
-/// `    BSSID                  : aa:bb:cc:dd:ee:ff`.
+/// `    BSSID                  : aa:bb:cc:dd:ee:ff` (Windows 10), `    AP BSSID ...` (Windows 11).
 pub fn joined_bssid(text: &str) -> Option<String> {
     text.lines()
         .filter_map(|line| line.split_once(':'))
-        .find(|(key, _)| key.trim() == "BSSID")
+        .find(|(key, _)| matches!(key.trim(), "BSSID" | "AP BSSID"))
         .and_then(|(_, value)| normalize_mac(value))
 }
 
@@ -507,6 +507,11 @@ BSS aa:bb:cc:00:00:02(on wlan0)
                     BSSID                  : aa:bb:cc:00:00:01\n    Channel                : 36\n";
         assert_eq!(joined_bssid(text).as_deref(), Some("aa:bb:cc:00:00:01"));
         assert_eq!(joined_bssid("    State : disconnected\n"), None);
+        let windows_11 = "    AP BSSID               : aa:bb:cc:00:00:02\n    Band : 5 GHz\n";
+        assert_eq!(
+            joined_bssid(windows_11).as_deref(),
+            Some("aa:bb:cc:00:00:02")
+        );
     }
 
     #[test]
