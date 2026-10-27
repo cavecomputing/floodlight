@@ -64,8 +64,8 @@ pub enum Sort {
     Channel,
     /// Loudest first, as ranked when chosen (see `sort`).
     Signal,
-    /// By network name, hidden ones last; access points sharing a name loudest first, as ranked
-    /// when chosen.
+    /// By network name, hidden ones last; access points sharing a name by band, then loudest
+    /// first as ranked when chosen.
     Name,
 }
 
@@ -108,9 +108,10 @@ pub fn sort(networks: &mut [(Network, Reading)], sort: Sort, ranks: &HashMap<Str
             .sort_by_key(|(network, _)| ranks.get(&key(network)).copied().unwrap_or(usize::MAX)),
         Sort::Name => networks.sort_by_key(|(network, _)| {
             let rank = ranks.get(&key(network)).copied().unwrap_or(usize::MAX);
+            let band = Band::of(network.freq_mhz);
             match &network.ssid {
-                Some(name) => (false, name.to_lowercase(), rank),
-                None => (true, String::new(), rank),
+                Some(name) => (false, name.to_lowercase(), band, rank),
+                None => (true, String::new(), band, rank),
             }
         }),
     }
@@ -170,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn sorts_by_name_then_signal_with_hidden_ones_last() {
+    fn sorts_by_name_then_band_then_signal_with_hidden_ones_last() {
         let mut trend = Trend::default();
         let named = |ssid: Option<&str>, bssid: &str| Network {
             ssid: ssid.map(String::from),
@@ -184,6 +185,12 @@ mod tests {
                 signal_dbm: -40,
                 ..named(Some("cafe"), "aa:bb:cc:00:00:04")
             },
+            // Louder than both, but on 5 GHz, so after the 2.4 GHz ones.
+            Network {
+                signal_dbm: -30,
+                freq_mhz: 5180,
+                ..named(Some("cafe"), "aa:bb:cc:00:00:05")
+            },
         ]);
         let mut networks = trend.networks();
         let ranks = ranks(&networks);
@@ -192,13 +199,14 @@ mod tests {
             .iter()
             .map(|(network, _)| network.bssid.as_deref().unwrap())
             .collect();
-        // Attic, then the two cafes loudest first, then the hidden one.
+        // Attic, then the 2.4 GHz cafes loudest first, the 5 GHz cafe, then the hidden one.
         assert_eq!(
             order,
             [
                 "aa:bb:cc:00:00:03",
                 "aa:bb:cc:00:00:04",
                 "aa:bb:cc:00:00:02",
+                "aa:bb:cc:00:00:05",
                 "aa:bb:cc:00:00:01"
             ]
         );
