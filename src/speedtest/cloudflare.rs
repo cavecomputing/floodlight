@@ -2,15 +2,16 @@
 //! `__down` sends back as many bytes as asked, `__up` takes what is posted, and each answer's
 //! `server-timing` header says how long the server spent, which comes off the time measured here.
 
+use crate::brand;
 use regex::Regex;
 use std::io;
 use std::time::{Duration, Instant};
-use ureq::Agent;
+use ureq::http::Response;
+use ureq::{Agent, Body};
 
 const HOST: &str = "https://speed.cloudflare.com";
-/// What a request is taken to have spent on the server when its answer doesn't say, as
-/// Cloudflare's own test assumes.
-const SERVER_TIME: Duration = Duration::from_millis(10);
+/// How many times a request told to slow down (429) is asked again, as Cloudflare's page does.
+const RETRIES: u32 = 3;
 
 /// The data center that answered, and the network this machine reached it through.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +38,10 @@ impl Server {
 pub fn agent() -> Agent {
     Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(60)))
+        // Statuses are read here, so a 429's retry-after can be.
+        .http_status_as_error(false)
+        // Our own name rather than the HTTP library's, so Cloudflare sees what is asking.
+        .user_agent(format!("{}/{}", brand::BIN, env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }
@@ -47,6 +52,9 @@ pub fn agent() -> Agent {
 pub fn server(agent: &Agent) -> Option<Server> {
     let text = |path: &str| -> Option<String> {
         let mut answer = agent.get(format!("{HOST}{path}")).call().ok()?;
+        if !answer.status().is_success() {
+            return None;
+        }
         answer.body_mut().read_to_string().ok()
     };
     let colo = read_trace(&text("/cdn-cgi/trace")?)?;
@@ -93,47 +101,75 @@ pub fn read_server_time(header: &str) -> Option<Duration> {
 /// Fetches `bytes`, and how long it took: from asking to the last byte, less the server's time.
 /// With 0 bytes that is the round trip.
 pub fn download(agent: &Agent, bytes: usize) -> Result<Duration, String> {
-    let started = Instant::now();
-    let mut answer = agent
-        .get(format!("{HOST}/__down?bytes={bytes}"))
-        .call()
-        .map_err(words)?;
+    let url = format!("{HOST}/__down?bytes={bytes}");
+    let (started, mut answer) = answered(|| agent.get(&url).call())?;
     let server = server_time(&answer);
     io::copy(&mut answer.body_mut().as_reader(), &mut io::sink()).map_err(|e| e.to_string())?;
     Ok(started.elapsed().saturating_sub(server))
 }
 
-/// Sends `body`, and how long it took: from sending to the answer, less the server's time.
+/// Sends `body`, and how long it took: from sending to the answer. Cloudflare's page counts the
+/// server's time in here, so this does too. The size goes in the URL as well, and the body as
+/// text, both as the page sends them.
 pub fn upload(agent: &Agent, body: &[u8]) -> Result<Duration, String> {
-    let started = Instant::now();
-    let answer = agent
-        .post(format!("{HOST}/__up"))
-        .send(body)
-        .map_err(words)?;
-    Ok(started.elapsed().saturating_sub(server_time(&answer)))
+    let url = format!("{HOST}/__up?bytes={}", body.len());
+    let (started, _) = answered(|| {
+        agent
+            .post(&url)
+            .header("content-type", "text/plain;charset=UTF-8")
+            .send(body)
+    })?;
+    Ok(started.elapsed())
 }
 
-fn server_time<B>(answer: &ureq::http::Response<B>) -> Duration {
+/// Makes the request, waiting and asking again when Cloudflare says too many (429), as often as
+/// its page does. Hands back when the answer's request went out, and the answer.
+fn answered(
+    request: impl Fn() -> Result<Response<Body>, ureq::Error>,
+) -> Result<(Instant, Response<Body>), String> {
+    let mut retries = 0;
+    loop {
+        let started = Instant::now();
+        let answer = request().map_err(|e| e.to_string())?;
+        let status = answer.status().as_u16();
+        if status == 429 && retries < RETRIES {
+            retries += 1;
+            std::thread::sleep(retry_after(&answer));
+            continue;
+        }
+        if !answer.status().is_success() {
+            return Err(format!("cloudflare answered {status}"));
+        }
+        return Ok((started, answer));
+    }
+}
+
+/// How long a 429 asks to wait, in seconds; 5 when it doesn't say, as Cloudflare's page assumes.
+fn retry_after(answer: &Response<Body>) -> Duration {
+    let seconds = answer
+        .headers()
+        .get("retry-after")
+        .and_then(|header| header.to_str().ok())
+        .and_then(|header| header.trim().parse().ok())
+        .unwrap_or(5);
+    Duration::from_secs(seconds)
+}
+
+fn server_time(answer: &Response<Body>) -> Duration {
     answer
         .headers()
         .get("server-timing")
         .and_then(|header| header.to_str().ok())
         .and_then(read_server_time)
-        .unwrap_or(SERVER_TIME)
+        .unwrap_or_default()
 }
 
-/// `bytes` moved in `took`, as megabits a second. None for a transfer too quick to time well
-/// (under 10 ms, which Cloudflare's own test leaves out too).
+/// `bytes` moved in `took`, as megabits a second, with the 0.5% Cloudflare's page adds for the
+/// headers and framing around them. None for a transfer too quick to time well (under 10 ms,
+/// which the page leaves out too).
 pub fn mbps(bytes: usize, took: Duration) -> Option<f32> {
     let seconds = took.as_secs_f64();
-    (seconds >= 0.01).then(|| (bytes as f64 * 8.0 / seconds / 1e6) as f32)
-}
-
-fn words(error: ureq::Error) -> String {
-    match error {
-        ureq::Error::StatusCode(status) => format!("cloudflare answered {status}"),
-        error => error.to_string(),
-    }
+    (seconds >= 0.01).then(|| (bytes as f64 * 1.005 * 8.0 / seconds / 1e6) as f32)
 }
 
 #[cfg(test)]
@@ -178,7 +214,7 @@ mod tests {
 
     #[test]
     fn works_out_megabits_a_second() {
-        let speed = mbps(10_000_000, Duration::from_millis(800)).expect("timed");
+        let speed = mbps(10_000_000, Duration::from_millis(804)).expect("timed");
         assert!((speed - 100.0).abs() < 0.01);
         assert_eq!(mbps(100_000, Duration::from_millis(5)), None);
     }

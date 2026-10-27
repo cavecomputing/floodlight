@@ -1,5 +1,5 @@
-//! The speed test itself: latency first, then download and upload in growing transfers, the way
-//! Cloudflare's own page measures, run as many times as asked with a wait between. The screen
+//! The speed test itself: latency first, then downloads and uploads taking turns as they grow,
+//! the way Cloudflare's own page measures, run as many times as asked with a wait between. The screen
 //! hears about it through `Event`s and keeps the results in `Runs`.
 
 use super::cloudflare::{self, Server};
@@ -9,21 +9,23 @@ use ureq::Agent;
 
 /// Requests timed for latency and jitter.
 const PINGS: usize = 20;
-/// Download sizes in bytes, each fetched a few times, smallest first.
-const DOWNLOADS: [(usize, usize); 5] = [
-    (100_000, 4),
-    (1_000_000, 4),
-    (10_000_000, 3),
-    (25_000_000, 2),
-    (100_000_000, 2),
+/// Cloudflare's page's own sequence: each size in bytes, how many times, downloads and uploads
+/// taking turns as they grow.
+const SEQUENCE: [(Phase, usize, usize); 11] = [
+    (Phase::Download, 100_000, 9),
+    (Phase::Download, 1_000_000, 8),
+    (Phase::Upload, 100_000, 8),
+    (Phase::Upload, 1_000_000, 6),
+    (Phase::Download, 10_000_000, 6),
+    (Phase::Upload, 10_000_000, 4),
+    (Phase::Download, 25_000_000, 4),
+    (Phase::Upload, 25_000_000, 4),
+    (Phase::Download, 100_000_000, 3),
+    (Phase::Upload, 50_000_000, 3),
+    (Phase::Download, 250_000_000, 2),
 ];
-const UPLOADS: [(usize, usize); 4] = [
-    (100_000, 4),
-    (1_000_000, 4),
-    (10_000_000, 3),
-    (25_000_000, 2),
-];
-/// Once a size takes this long the link is measured; bigger ones would only take longer.
+/// Once every request of a size takes longer than this, the link is measured that way; bigger
+/// sizes would only take longer.
 const LONG_ENOUGH: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -232,35 +234,32 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
         send(Event::Ping(took.as_secs_f32() * 1000.0));
     }
 
-    send(Event::Phase(Phase::Download));
-    for (bytes, times) in DOWNLOADS {
-        let mut long_enough = false;
+    let mut measured = Vec::new();
+    for (phase, bytes, times) in SEQUENCE {
+        if measured.contains(&phase) {
+            continue;
+        }
+        send(Event::Phase(phase));
+        let body = match phase {
+            // The character 0 over and over, the text Cloudflare's page sends.
+            Phase::Upload => vec![b'0'; bytes],
+            _ => Vec::new(),
+        };
+        let mut quickest = Duration::MAX;
         for _ in 0..times {
-            let took = cloudflare::download(agent, bytes)?;
-            long_enough |= took >= LONG_ENOUGH;
-            if let Some(mbps) = cloudflare::mbps(bytes, took) {
-                send(Event::Download(mbps));
+            let took = match phase {
+                Phase::Upload => cloudflare::upload(agent, &body)?,
+                _ => cloudflare::download(agent, bytes)?,
+            };
+            quickest = quickest.min(took);
+            match (phase, cloudflare::mbps(bytes, took)) {
+                (Phase::Upload, Some(mbps)) => send(Event::Upload(mbps)),
+                (_, Some(mbps)) => send(Event::Download(mbps)),
+                (_, None) => {}
             }
         }
-        if long_enough {
-            break;
-        }
-    }
-
-    send(Event::Phase(Phase::Upload));
-    for (bytes, times) in UPLOADS {
-        // The character 0 over and over, the text Cloudflare's own page sends, not raw zero bytes.
-        let body = vec![b'0'; bytes];
-        let mut long_enough = false;
-        for _ in 0..times {
-            let took = cloudflare::upload(agent, &body)?;
-            long_enough |= took >= LONG_ENOUGH;
-            if let Some(mbps) = cloudflare::mbps(bytes, took) {
-                send(Event::Upload(mbps));
-            }
-        }
-        if long_enough {
-            break;
+        if quickest > LONG_ENOUGH {
+            measured.push(phase);
         }
     }
     Ok(())

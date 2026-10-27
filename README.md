@@ -110,8 +110,8 @@ as 20 MHz. Recent Windows may refuse to list networks until the terminal has loc
 
 Tests the internet connection against [Cloudflare's speed test](https://speed.cloudflare.com), the
 way its own page does: 20 small requests for latency (the middle one) and jitter (how much one
-differs from the next), then downloads and uploads of growing size until a size takes a second or
-more. The speed is the 90th percentile of those transfers, as Cloudflare reports it, so the small
+differs from the next), then downloads and uploads taking turns, from 100 kB up to 250 MB, until
+every request of a size takes over a second. The speed is the 90th percentile of those transfers, as Cloudflare reports it, so the small
 ones that never fill the link don't drag it down.
 
 ```
