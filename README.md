@@ -133,8 +133,8 @@ floodlight --speedtest --count 3 --report speed.pdf   # write them as a PDF repo
 With `--count`, the screen also graphs download, upload and latency across the runs, side by side
 under the table, so a line that slows down over the afternoon shows as a falling row of dots.
 
-It talks to Cloudflare through `curl`, which Windows 10 and later, macOS and every Linux have, so
-nothing else needs installing. A test moves a few hundred megabytes on a fast line.
+It talks to Cloudflare over HTTPS by itself, so nothing needs installing. A test moves a few
+hundred megabytes on a fast line.
 
 ## --report
 

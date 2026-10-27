@@ -107,7 +107,7 @@ pub fn network_words(network: &Network, crowd: Crowd) -> [String; 7] {
     ]
 }
 
-pub fn speedtest(runtime: &Runtime, count: u32, wait: Duration) -> anyhow::Result<()> {
+pub fn speedtest(count: u32, wait: Duration) -> anyhow::Result<()> {
     println!(
         "# speed test against cloudflare · {count} run{}",
         if count == 1 { "" } else { "s" }
@@ -116,7 +116,7 @@ pub fn speedtest(runtime: &Runtime, count: u32, wait: Duration) -> anyhow::Resul
         "{:<8}  {:>8}  {:>8}  {:>12}  {:>12}  server",
         "time", "latency", "jitter", "download", "upload"
     );
-    runs::finished(runtime, count, wait, |run| {
+    runs::finished(count, wait, |run| {
         let [time, latency, jitter, download, upload, server] = run_words(run);
         println!("{time:<8}  {latency:>8}  {jitter:>8}  {download:>12}  {upload:>12}  {server}");
     });

@@ -85,12 +85,12 @@ fn main() -> anyhow::Result<()> {
     if args.speedtest {
         let wait = Duration::from_secs(args.wait);
         if let Some(path) = &args.report {
-            return report::speedtest::write(&runtime, path, args.count, wait);
+            return report::speedtest::write(path, args.count, wait);
         }
         if args.plain {
-            return ui::plain::speedtest(&runtime, args.count, wait);
+            return ui::plain::speedtest(args.count, wait);
         }
-        return ui::speedtest::run(&runtime, args.count, wait);
+        return ui::speedtest::run(args.count, wait);
     }
     let subnet = scan::subnet::choose(args.subnet.as_deref())?;
     if let Some(path) = &args.report {

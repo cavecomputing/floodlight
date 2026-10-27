@@ -14,9 +14,8 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
 use ratatui::{DefaultTerminal, Frame};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 const TICK: Duration = Duration::from_millis(50);
 const PULSE: Duration = Duration::from_millis(600);
@@ -26,21 +25,21 @@ const PLOT_ROWS: u16 = 6;
 /// Columns a graph's scale takes, left of its points.
 const SCALE: u16 = 7;
 
-pub fn run(runtime: &Runtime, count: u32, wait: Duration) -> anyhow::Result<()> {
+pub fn run(count: u32, wait: Duration) -> anyhow::Result<()> {
     let mut screen = Screen {
-        events: runs::start(runtime, count, wait),
+        events: runs::start(count, wait),
         runs: Runs::default(),
         asked: count,
         opened: Instant::now(),
     };
     let mut terminal = ratatui::init();
-    let outcome = screen.show(&mut terminal, runtime, count, wait);
+    let outcome = screen.show(&mut terminal, count, wait);
     ratatui::restore();
     outcome
 }
 
 struct Screen {
-    events: UnboundedReceiver<Event>,
+    events: Receiver<Event>,
     runs: Runs,
     /// Runs asked for so far, ^r included.
     asked: u32,
@@ -51,7 +50,6 @@ impl Screen {
     fn show(
         &mut self,
         terminal: &mut DefaultTerminal,
-        runtime: &Runtime,
         count: u32,
         wait: Duration,
     ) -> anyhow::Result<()> {
@@ -71,7 +69,7 @@ impl Screen {
                     }
                     // Another round of the same runs, under the ones already measured.
                     (KeyCode::Char('r'), true) if self.runs.done => {
-                        self.events = runs::start(runtime, count, wait);
+                        self.events = runs::start(count, wait);
                         self.runs.done = false;
                         self.asked += count;
                     }

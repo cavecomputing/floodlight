@@ -1,19 +1,16 @@
-//! Cloudflare's speed test (speed.cloudflare.com), spoken to through the OS's own `curl`: it ships
-//! with Windows 10 and later, macOS and every Linux, so no HTTP or TLS crate is linked in. `curl`
-//! reports each transfer's timings, which is all a speed test needs.
+//! Cloudflare's speed test (speed.cloudflare.com), through the endpoints its own page uses:
+//! `__down` sends back as many bytes as asked, `__up` takes what is posted, and each answer's
+//! `server-timing` header says how long the server spent, which comes off the time measured here.
 
 use regex::Regex;
-use std::process::Stdio;
-use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
+use std::io;
+use std::time::{Duration, Instant};
+use ureq::Agent;
 
 const HOST: &str = "https://speed.cloudflare.com";
-
-/// What `curl -w` writes after each transfer: the status, the bytes each way, and the seconds
-/// from the start until the request went out, until the first byte came back, and until the end.
-const TIMINGS: &str = "%{http_code} %{size_download} %{size_upload} %{time_pretransfer} \
-                       %{time_starttransfer} %{time_total}\n";
+/// What a request is taken to have spent on the server when its answer doesn't say, as
+/// Cloudflare's own test assumes.
+const SERVER_TIME: Duration = Duration::from_millis(10);
 
 /// The data center that answered, and the network this machine reached it through.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,159 +32,107 @@ impl Server {
     }
 }
 
-/// One finished transfer's timings, as `curl` measured them.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Transfer {
-    pub status: u16,
-    pub downloaded: u64,
-    pub uploaded: u64,
-    pub sent: f64,
-    pub first_byte: f64,
-    pub total: f64,
+/// Requests that share their connections, so each after the first skips the setup, like a
+/// browser's.
+pub fn agent() -> Agent {
+    Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(60)))
+        .build()
+        .into()
 }
 
-impl Transfer {
-    /// One line of `TIMINGS`.
-    pub fn parse(line: &str) -> Option<Transfer> {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        let [status, downloaded, uploaded, sent, first_byte, total] = words[..] else {
-            return None;
-        };
-        Some(Transfer {
-            status: status.parse().ok()?,
-            downloaded: downloaded.parse().ok()?,
-            uploaded: uploaded.parse().ok()?,
-            sent: sent.parse().ok()?,
-            first_byte: first_byte.parse().ok()?,
-            total: total.parse().ok()?,
-        })
-    }
-
-    /// The round trip of the request: from asking to the first byte of the answer, on a
-    /// connection already open.
-    pub fn latency_ms(&self) -> f32 {
-        ((self.first_byte - self.sent) * 1000.0) as f32
-    }
-
-    /// From the request going out to the last byte, the time the bytes took.
-    pub fn took(&self) -> Duration {
-        Duration::from_secs_f64((self.total - self.sent).max(0.0))
-    }
-
-    /// The bytes moved each way, as megabits a second. None for a transfer too quick to time.
-    pub fn mbps(&self, bytes: u64) -> Option<f32> {
-        let seconds = self.total - self.sent;
-        (seconds >= 0.01).then(|| (bytes as f64 * 8.0 / seconds / 1e6) as f32)
-    }
-}
-
-/// The data center this machine reaches and its provider, from `/meta`'s JSON.
-pub async fn server() -> Result<Server, String> {
-    let output = Command::new("curl")
-        .args(["-sS", &format!("{HOST}/meta")])
-        .kill_on_drop(true)
-        .output()
-        .await
-        .map_err(curl_missing)?;
-    if !output.status.success() {
-        return Err(complaint(&output.stderr));
-    }
-    read_meta(&String::from_utf8_lossy(&output.stdout))
-        .ok_or_else(|| "cloudflare didn't say where it answered from".to_string())
-}
-
-/// Reads the fields the screen shows from `/meta`. `colo` is an object (`{"iata":"LAX",...}`) on
-/// today's endpoint; older answers had it as a plain string, which is read as well.
-pub fn read_meta(json: &str) -> Option<Server> {
-    let field = |pattern: &str| {
-        Regex::new(pattern)
-            .expect("a valid pattern")
-            .captures(json)
-            .map(|found| found[1].to_string())
+/// The data center this machine reaches and its provider. `/cdn-cgi/trace`, which every
+/// Cloudflare site answers, names the data center; the city and the provider come from the speed
+/// test's own `/locations` and `/meta` when they say. None if the trace didn't answer.
+pub fn server(agent: &Agent) -> Option<Server> {
+    let text = |path: &str| -> Option<String> {
+        let mut answer = agent.get(format!("{HOST}{path}")).call().ok()?;
+        answer.body_mut().read_to_string().ok()
     };
-    let colo = field(r#""colo"\s*:\s*\{[^}]*"iata"\s*:\s*"([^"]+)""#)
-        .or_else(|| field(r#""colo"\s*:\s*"([^"]+)""#))?;
-    Some(Server {
-        colo,
-        city: field(r#""colo"\s*:\s*\{[^}]*"city"\s*:\s*"([^"]+)""#),
-        isp: field(r#""asOrganization"\s*:\s*"([^"]+)""#),
-    })
+    let colo = read_trace(&text("/cdn-cgi/trace")?)?;
+    let city = text("/locations").and_then(|json| read_city(&json, &colo));
+    let isp = text("/meta").and_then(|json| field(&json, "asOrganization"));
+    Some(Server { colo, city, isp })
 }
 
-/// Fetches `bytes` from Cloudflare `times` over one connection, handing each transfer over as it
-/// ends.
-pub async fn download(bytes: u64, times: usize, each: impl FnMut(Transfer)) -> Result<(), String> {
-    let url = format!("{HOST}/__down?bytes={bytes}");
-    transfers(&url, times, 0, each).await
+/// `colo=LAX` from the trace's `key=value` lines.
+pub fn read_trace(trace: &str) -> Option<String> {
+    trace
+        .lines()
+        .find_map(|line| line.strip_prefix("colo="))
+        .map(|colo| colo.trim().to_string())
+        .filter(|colo| !colo.is_empty())
 }
 
-/// Sends `bytes` to Cloudflare `times` over one connection, handing each transfer over as it ends.
-pub async fn upload(bytes: usize, times: usize, each: impl FnMut(Transfer)) -> Result<(), String> {
-    transfers(&format!("{HOST}/__up"), times, bytes, each).await
+/// The city of the data center `colo` in `/locations`' list, one `{...}` object each.
+pub fn read_city(json: &str, colo: &str) -> Option<String> {
+    json.split('}')
+        .find(|place| field(place, "iata").as_deref() == Some(colo))
+        .and_then(|place| field(place, "city"))
 }
 
-/// `times` requests to `url` in one `curl`, so the connection is set up once and stays warm. With
-/// `upload` bytes, each request posts that many zeros (curl reads them from stdin once and sends
-/// them to every URL).
-async fn transfers(
-    url: &str,
-    times: usize,
-    upload: usize,
-    mut each: impl FnMut(Transfer),
-) -> Result<(), String> {
-    // Windows has no /dev/null; its name for the same thing is NUL.
-    let nowhere = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let mut command = Command::new("curl");
-    command.args(["-sS", "-w", TIMINGS]);
-    if upload > 0 {
-        command.args(["--data-binary", "@-"]);
-    }
-    for _ in 0..times {
-        command.args(["-o", nowhere, url]);
-    }
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(curl_missing)?;
-    if let Some(mut stdin) = child.stdin.take() {
-        tokio::spawn(async move {
-            let _ = stdin.write_all(&vec![0; upload]).await;
-        });
-    }
-    let stdout = child.stdout.take().expect("stdout was piped");
-    let mut lines = BufReader::new(stdout).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        match Transfer::parse(&line) {
-            Some(transfer) if transfer.status == 200 => each(transfer),
-            // No answer at all: curl's own words on stderr say why, below.
-            Some(transfer) if transfer.status == 0 => {}
-            Some(transfer) => return Err(format!("cloudflare answered {}", transfer.status)),
-            None => {}
-        }
-    }
-    let output = child.wait_with_output().await.map_err(|e| e.to_string())?;
-    match output.status.success() {
-        true => Ok(()),
-        false => Err(complaint(&output.stderr)),
-    }
+/// A string field's value in a piece of JSON, like `"city":"Los Angeles"`.
+fn field(json: &str, name: &str) -> Option<String> {
+    Regex::new(&format!(r#""{name}"\s*:\s*"([^"]+)""#))
+        .expect("a valid pattern")
+        .captures(json)
+        .map(|found| found[1].to_string())
 }
 
-fn curl_missing(error: std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => "the speed test needs curl, which isn't installed".into(),
-        _ => format!("curl: {error}"),
-    }
+/// How long the server says it spent, from a `server-timing` header like
+/// `cfRequestDuration;dur=12.3`.
+pub fn read_server_time(header: &str) -> Option<Duration> {
+    let found = Regex::new(r"dur=([0-9.]+)")
+        .expect("a valid pattern")
+        .captures(header)?;
+    Some(Duration::from_secs_f64(
+        found[1].parse::<f64>().ok()? / 1000.0,
+    ))
 }
 
-/// curl's last line on stderr, like `curl: (6) Could not resolve host: speed.cloudflare.com`.
-fn complaint(stderr: &[u8]) -> String {
-    let stderr = String::from_utf8_lossy(stderr);
-    match stderr.lines().rev().find(|line| !line.trim().is_empty()) {
-        Some(line) => line.trim().to_string(),
-        None => "curl failed without saying why".to_string(),
+/// Fetches `bytes`, and how long it took: from asking to the last byte, less the server's time.
+/// With 0 bytes that is the round trip.
+pub fn download(agent: &Agent, bytes: usize) -> Result<Duration, String> {
+    let started = Instant::now();
+    let mut answer = agent
+        .get(format!("{HOST}/__down?bytes={bytes}"))
+        .call()
+        .map_err(words)?;
+    let server = server_time(&answer);
+    io::copy(&mut answer.body_mut().as_reader(), &mut io::sink()).map_err(|e| e.to_string())?;
+    Ok(started.elapsed().saturating_sub(server))
+}
+
+/// Sends `body`, and how long it took: from sending to the answer, less the server's time.
+pub fn upload(agent: &Agent, body: &[u8]) -> Result<Duration, String> {
+    let started = Instant::now();
+    let answer = agent
+        .post(format!("{HOST}/__up"))
+        .send(body)
+        .map_err(words)?;
+    Ok(started.elapsed().saturating_sub(server_time(&answer)))
+}
+
+fn server_time<B>(answer: &ureq::http::Response<B>) -> Duration {
+    answer
+        .headers()
+        .get("server-timing")
+        .and_then(|header| header.to_str().ok())
+        .and_then(read_server_time)
+        .unwrap_or(SERVER_TIME)
+}
+
+/// `bytes` moved in `took`, as megabits a second. None for a transfer too quick to time well
+/// (under 10 ms, which Cloudflare's own test leaves out too).
+pub fn mbps(bytes: usize, took: Duration) -> Option<f32> {
+    let seconds = took.as_secs_f64();
+    (seconds >= 0.01).then(|| (bytes as f64 * 8.0 / seconds / 1e6) as f32)
+}
+
+fn words(error: ureq::Error) -> String {
+    match error {
+        ureq::Error::StatusCode(status) => format!("cloudflare answered {status}"),
+        error => error.to_string(),
     }
 }
 
@@ -196,44 +141,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_a_transfers_timings() {
-        let transfer =
-            Transfer::parse("200 10000000 0 0.050000 0.065000 0.850000").expect("a transfer");
-        assert_eq!(transfer.status, 200);
-        assert_eq!(transfer.downloaded, 10_000_000);
-        assert!((transfer.latency_ms() - 15.0).abs() < 0.01);
-        assert!((transfer.mbps(transfer.downloaded).expect("timed") - 100.0).abs() < 0.01);
-        assert_eq!(transfer.took(), Duration::from_millis(800));
+    fn reads_the_data_center_from_the_trace() {
+        let trace = "fl=1f1\nh=speed.cloudflare.com\nip=192.0.2.1\nts=1761570000.1\n\
+                     visit_scheme=https\ncolo=LAX\nhttp=http/2\nloc=US\ntls=TLSv1.3\n";
+        assert_eq!(read_trace(trace).as_deref(), Some("LAX"));
+        assert_eq!(read_trace("fl=1f1\ncolo=\n"), None);
     }
 
     #[test]
-    fn leaves_out_what_isnt_a_transfer() {
-        assert_eq!(Transfer::parse(""), None);
-        assert_eq!(Transfer::parse("200 1 2 3"), None);
-        assert_eq!(Transfer::parse("ok 1 2 0.1 0.2 0.3"), None);
+    fn finds_the_data_centers_city() {
+        let json = r#"[{"iata":"AMS","lat":52.3,"lon":4.8,"cca2":"NL","region":"Europe",
+            "city":"Amsterdam"},{"iata":"LAX","lat":33.9,"lon":-118.4,"cca2":"US",
+            "region":"North America","city":"Los Angeles"}]"#;
+        assert_eq!(read_city(json, "LAX").as_deref(), Some("Los Angeles"));
+        assert_eq!(read_city(json, "SJC"), None);
     }
 
     #[test]
-    fn a_transfer_too_quick_to_time_has_no_speed() {
-        let transfer = Transfer::parse("200 0 0 0.010 0.012 0.015").expect("a transfer");
-        assert_eq!(transfer.mbps(transfer.downloaded), None);
+    fn reads_the_provider() {
+        let json = r#"{"clientIp":"192.0.2.1","asn":64500,"asOrganization":"Example Fiber"}"#;
+        assert_eq!(
+            field(json, "asOrganization").as_deref(),
+            Some("Example Fiber")
+        );
     }
 
     #[test]
-    fn reads_where_cloudflare_answered_from() {
-        let json = r#"{"hostname":"speed.cloudflare.com","clientIp":"192.0.2.1","asn":64500,
-            "asOrganization":"Example Fiber","colo":{"iata":"LAX","lat":33.9,"lon":-118.4,
-            "cca2":"US","region":"North America","city":"Los Angeles"},"city":"Pasadena"}"#;
-        let server = read_meta(json).expect("a server");
-        assert_eq!(server.place(), "LAX · Los Angeles");
-        assert_eq!(server.isp.as_deref(), Some("Example Fiber"));
+    fn reads_the_servers_time() {
+        let header = "cfRequestDuration;dur=12.5";
+        assert_eq!(
+            read_server_time(header),
+            Some(Duration::from_micros(12_500))
+        );
+        assert_eq!(read_server_time("cfL4;desc=\"?proto=TCP\""), None);
     }
 
     #[test]
-    fn reads_the_older_plain_colo() {
-        let server = read_meta(r#"{"colo":"AMS","asn":64500}"#).expect("a server");
-        assert_eq!(server.place(), "AMS");
-        assert_eq!(server.isp, None);
-        assert_eq!(read_meta("{}"), None);
+    fn works_out_megabits_a_second() {
+        let speed = mbps(10_000_000, Duration::from_millis(800)).expect("timed");
+        assert!((speed - 100.0).abs() < 0.01);
+        assert_eq!(mbps(100_000, Duration::from_millis(5)), None);
     }
 }

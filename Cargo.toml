@@ -23,9 +23,11 @@ ipnet = "2"
 ratatui = "0.30"
 # Reading ping's round trip and the ARP table's lines.
 regex = "1"
-# Runs the sweep: 128 pings at once, each a child process, and the name lookups beside them;
-# and the speed test's curl, read a line at a time as each transfer ends.
-tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros", "io-util"] }
+# Runs the sweep: 128 pings at once, each a child process, and the name lookups beside them.
+tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros"] }
+# The speed test's HTTPS to Cloudflare, with its own TLS (rustls), so it needs nothing installed.
+# No gzip: a compressed download would measure the wrong number of bytes.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows' own wifi service (wlanapi): ask it to scan and read what it heard, which netsh can't.

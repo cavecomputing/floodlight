@@ -9,7 +9,6 @@ use crate::speedtest::runs::{self, Run, Runs};
 use crate::ui::plain;
 use std::path::Path;
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
 const COLUMNS: [Column; 6] = [
     Column {
@@ -51,9 +50,9 @@ const COLUMNS: [Column; 6] = [
 ];
 
 /// Runs the test `count` times, `wait` apart, saying how each went, then writes the report.
-pub fn write(runtime: &Runtime, path: &Path, count: u32, wait: Duration) -> anyhow::Result<()> {
+pub fn write(path: &Path, count: u32, wait: Duration) -> anyhow::Result<()> {
     let mut ended = 0;
-    let runs = runs::finished(runtime, count, wait, |run| {
+    let runs = runs::finished(count, wait, |run| {
         ended += 1;
         let [_, latency, _, download, upload, server] = plain::run_words(run);
         match &run.failed {

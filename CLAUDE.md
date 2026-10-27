@@ -139,8 +139,7 @@ cargo build --release             # the optimised binary, at target/release/<bin
 What each OS needs before the first build: Rust (rustup) and a C compiler (`base-devel` on Arch,
 `build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools with
 the "Desktop development with C++" workload on Windows). At run time: `ping`, and `ip` (iproute2)
-or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying. For `--speedtest`: `curl`,
-which ships with Windows 10 and later, macOS and every Linux.
+or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying.
 For `--wireless`: `nmcli` or `iw` on Linux, nothing extra on Windows (it asks the wifi service through windows-sys); on macOS the build compiles a
 Swift helper with `swiftc` (part of Xcode's command line tools).
 
@@ -188,9 +187,9 @@ Ctrl+R forgets them and starts over. `--plain` prints one scan.
 
 `--speedtest`: `floodlight --speedtest` opens a screen with a row a run and fills it in as the run
 goes: latency and jitter from 20 empty requests, then downloads and uploads of growing size until
-one size takes a second (Cloudflare's own method, reporting the 90th percentile). It shells out to
-`curl` (one `curl` per size, so the connection stays warm, and its `-w` timings read a line per
-transfer) rather than link an HTTP and TLS crate. `--count N` runs it N times, `--wait SECONDS`
+one size takes a second (Cloudflare's own method, reporting the 90th percentile, with the server's
+own time from each answer's `server-timing` header taken off). It speaks HTTPS through the ureq
+crate on a thread of its own, one kept-open connection, no gzip. `--count N` runs it N times, `--wait SECONDS`
 apart (5 by default); Ctrl+R runs the same again once it is done.
 
 There is no daemon and no state between runs.
@@ -232,7 +231,7 @@ src/
                          overlaps it, the quietest channel, the strip that draws a band
     trend.rs             each access point's signal across scans: change and peak, gone or heard
   speedtest/             the speed test, no UI
-    cloudflare.rs        speed.cloudflare.com through curl: the transfers, their timings, /meta's server
+    cloudflare.rs        speed.cloudflare.com through ureq: the transfers and their timings, the data center
     runs.rs              the runs: the sizes, the Event enum the screen hears, latency, jitter and
                          the 90th percentile speeds
   os/                    the OS outside the network

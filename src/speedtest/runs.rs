@@ -2,15 +2,15 @@
 //! Cloudflare's own page measures, run as many times as asked with a wait between. The screen
 //! hears about it through `Event`s and keeps the results in `Runs`.
 
-use super::cloudflare::{self, Server, Transfer};
+use super::cloudflare::{self, Server};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use ureq::Agent;
 
 /// Requests timed for latency and jitter.
 const PINGS: usize = 20;
 /// Download sizes in bytes, each fetched a few times, smallest first.
-const DOWNLOADS: [(u64, usize); 5] = [
+const DOWNLOADS: [(usize, usize); 5] = [
     (100_000, 4),
     (1_000_000, 4),
     (10_000_000, 3),
@@ -176,42 +176,37 @@ pub fn scale_top(most: f32) -> f32 {
         .unwrap_or(10.0 * power)
 }
 
-/// Starts `count` runs on the runtime, `wait` apart, and hands back the stream of results.
-pub fn start(runtime: &Runtime, count: u32, wait: Duration) -> UnboundedReceiver<Event> {
-    let (tx, rx) = unbounded_channel();
-    runtime.spawn(run_all(count, wait, tx));
+/// Starts `count` runs, `wait` apart, on a thread of their own, and hands back the stream of
+/// results. The thread ends with the program, so quitting mid-transfer doesn't wait for it.
+pub fn start(count: u32, wait: Duration) -> Receiver<Event> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || run_all(count, wait, tx));
     rx
 }
 
 /// Runs them all and hands back the results once the last is in, for the outputs that print.
 /// `each` hears about every run as it ends.
-pub fn finished(runtime: &Runtime, count: u32, wait: Duration, mut each: impl FnMut(&Run)) -> Runs {
-    let mut events = start(runtime, count, wait);
+pub fn finished(count: u32, wait: Duration, mut each: impl FnMut(&Run)) -> Runs {
     let mut runs = Runs::default();
-    runtime.block_on(async {
-        while let Some(event) = events.recv().await {
-            let ended = matches!(event, Event::Finished | Event::Failed(_));
-            let done = matches!(event, Event::Done);
-            runs.apply(event);
-            if ended && let Some(run) = runs.runs.last() {
-                each(run);
-            }
-            if done {
-                break;
-            }
+    for event in start(count, wait) {
+        let ended = matches!(event, Event::Finished | Event::Failed(_));
+        runs.apply(event);
+        if ended && let Some(run) = runs.runs.last() {
+            each(run);
         }
-    });
+    }
     runs
 }
 
-async fn run_all(count: u32, wait: Duration, tx: UnboundedSender<Event>) {
+fn run_all(count: u32, wait: Duration, tx: Sender<Event>) {
+    let agent = cloudflare::agent();
     for i in 0..count {
         if i > 0 {
             let _ = tx.send(Event::Waiting(wait));
-            tokio::time::sleep(wait).await;
+            std::thread::sleep(wait);
         }
         let _ = tx.send(Event::Started);
-        let _ = tx.send(match run(&tx).await {
+        let _ = tx.send(match run(&agent, &tx) {
             Ok(()) => Event::Finished,
             Err(why) => Event::Failed(why),
         });
@@ -219,26 +214,34 @@ async fn run_all(count: u32, wait: Duration, tx: UnboundedSender<Event>) {
     let _ = tx.send(Event::Done);
 }
 
-async fn run(tx: &UnboundedSender<Event>) -> Result<(), String> {
+fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
     let send = |event| {
         let _ = tx.send(event);
     };
-    send(Event::Server(cloudflare::server().await?));
+    // Where it answered from is nice to know but not needed to measure.
+    if let Some(server) = cloudflare::server(agent) {
+        send(Event::Server(server));
+    }
 
     send(Event::Phase(Phase::Latency));
-    // Nothing to fetch, so each request's time to the first byte is the round trip.
-    cloudflare::download(0, PINGS, |t| send(Event::Ping(t.latency_ms()))).await?;
+    // Nothing to fetch, so each request's time is the round trip. The connection is already
+    // open from asking where it answered from; the first one opens it if not, and is left out.
+    cloudflare::download(agent, 0)?;
+    for _ in 0..PINGS {
+        let took = cloudflare::download(agent, 0)?;
+        send(Event::Ping(took.as_secs_f32() * 1000.0));
+    }
 
     send(Event::Phase(Phase::Download));
     for (bytes, times) in DOWNLOADS {
         let mut long_enough = false;
-        cloudflare::download(bytes, times, |t: Transfer| {
-            long_enough |= t.took() >= LONG_ENOUGH;
-            if let Some(mbps) = t.mbps(t.downloaded) {
+        for _ in 0..times {
+            let took = cloudflare::download(agent, bytes)?;
+            long_enough |= took >= LONG_ENOUGH;
+            if let Some(mbps) = cloudflare::mbps(bytes, took) {
                 send(Event::Download(mbps));
             }
-        })
-        .await?;
+        }
         if long_enough {
             break;
         }
@@ -246,14 +249,15 @@ async fn run(tx: &UnboundedSender<Event>) -> Result<(), String> {
 
     send(Event::Phase(Phase::Upload));
     for (bytes, times) in UPLOADS {
+        let body = vec![0; bytes];
         let mut long_enough = false;
-        cloudflare::upload(bytes, times, |t: Transfer| {
-            long_enough |= t.took() >= LONG_ENOUGH;
-            if let Some(mbps) = t.mbps(t.uploaded) {
+        for _ in 0..times {
+            let took = cloudflare::upload(agent, &body)?;
+            long_enough |= took >= LONG_ENOUGH;
+            if let Some(mbps) = cloudflare::mbps(bytes, took) {
                 send(Event::Upload(mbps));
             }
-        })
-        .await?;
+        }
         if long_enough {
             break;
         }
