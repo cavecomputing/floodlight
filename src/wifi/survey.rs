@@ -6,7 +6,7 @@
 use super::channels::{self, Band};
 use super::trend::Trend;
 use crate::brand;
-use crate::scan::hosts::normalize_mac;
+use crate::scan::hosts::{normalize_mac, printable};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -255,9 +255,9 @@ async fn output(program: &str, args: &[&str]) -> Option<String> {
 }
 
 fn ssid(raw: &str) -> Option<String> {
-    let raw = raw.trim();
+    let raw = printable(raw.trim());
     // iw prints a hidden network's name as zero bytes, `\x00\x00...`.
-    (!raw.is_empty() && !raw.starts_with("\\x00")).then(|| raw.to_string())
+    (!raw.is_empty() && !raw.starts_with("\\x00")).then_some(raw)
 }
 
 fn percent_to_dbm(percent: i32) -> i32 {
@@ -412,9 +412,11 @@ mod tests {
     #[test]
     fn reads_nmcli() {
         let text = "*:AA\\:BB\\:CC\\:00\\:00\\:01:Home\\:Net:2437 MHz:70\n \
-                    :AA\\:BB\\:CC\\:00\\:00\\:02::5180 MHz:40\n";
+                    :AA\\:BB\\:CC\\:00\\:00\\:02::5180 MHz:40\n \
+                    :AA\\:BB\\:CC\\:00\\:00\\:03:Cafe\x1b[2J:2412 MHz:50\n";
         let networks = parse_nmcli(text);
-        assert_eq!(networks.len(), 2);
+        assert_eq!(networks.len(), 3);
+        assert_eq!(networks[2].ssid.as_deref(), Some("Cafe[2J"));
         assert_eq!(networks[0].ssid.as_deref(), Some("Home:Net"));
         assert_eq!(networks[0].bssid.as_deref(), Some("aa:bb:cc:00:00:01"));
         assert_eq!(networks[0].freq_mhz, 2437);

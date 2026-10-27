@@ -2,7 +2,7 @@
 //! come in, makers and names filled in. The screen hears about it through `Event`s.
 
 use super::arp;
-use super::hosts::{Hosts, Vendor};
+use super::hosts::{Hosts, Vendor, printable};
 use super::mdns;
 use super::ping;
 use super::vendor::Vendors;
@@ -143,7 +143,9 @@ async fn probe_all(net: Ipv4Net, tx: UnboundedSender<Event>, done: Arc<AtomicBoo
 /// Asks the host itself over mDNS and the DNS server at the same time; the host's own name wins.
 async fn name(ip: Ipv4Addr, tx: UnboundedSender<Event>) {
     let (own, listed) = tokio::join!(mdns::name(ip, NAME_WAIT), dns_name(ip));
-    if let Some(name) = own.or(listed) {
+    if let Some(name) = own.or(listed).map(|name| printable(&name))
+        && !name.is_empty()
+    {
         let _ = tx.send(Event::Name { ip, name });
     }
 }

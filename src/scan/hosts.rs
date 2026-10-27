@@ -173,6 +173,12 @@ pub fn normalize_mac(raw: &str) -> Option<String> {
     Some(pairs.join(":"))
 }
 
+/// The text with control characters taken out. A name or an SSID is printed as it came, so
+/// a host or an access point mustn't be able to slip terminal escape codes into the table.
+pub fn printable(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).collect()
+}
+
 /// Every host seen so far, in address order, and how far the sweep has got.
 pub struct Hosts {
     pub rows: BTreeMap<Ipv4Addr, Host>,
@@ -256,6 +262,13 @@ mod tests {
         assert_eq!(normalize_mac("ff:ff:ff:ff:ff:ff"), None);
         assert_eq!(normalize_mac("(incomplete)"), None);
         assert_eq!(normalize_mac("2c:a5:9c:0b:3d"), None);
+    }
+
+    #[test]
+    fn keeps_escape_codes_out_of_names() {
+        // The escape goes; what followed it is plain text the terminal just shows.
+        assert_eq!(printable("door\x1b[2Jcam\r\n"), "door[2Jcam");
+        assert_eq!(printable("Café"), "Café");
     }
 
     #[test]
