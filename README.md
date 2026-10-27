@@ -10,7 +10,8 @@
 Floodlight is a small terminal tool that looks at the network this machine is on. It finds every
 device on your subnet, with its MAC, maker and name, so the camera or switch you just plugged in
 turns up by the MAC on its label. And it lists the WiFi networks around you and how their channels
-crowd each other, so you can pick the quietest one.
+crowd each other, so you can pick the quietest one. And it tests the internet connection's
+download, upload, latency and jitter against Cloudflare.
 
 Each feature has its own flag. `floodlight` on its own prints the help that lists them.
 
@@ -18,7 +19,8 @@ Each feature has its own flag. `floodlight` on its own prints the help that list
 |---|---|
 | [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
 | [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
-| [`--report FILE`](#--report) | either of them written as a PDF to hand a client or a manager |
+| [`--speedtest`](#--speedtest) | download, upload, latency and jitter, once or `--count` times |
+| [`--report FILE`](#--report) | any of them written as a PDF to hand a client or a manager |
 
 It needs no root, uses the tools your OS already has, and runs on Linux, macOS and Windows.
 
@@ -104,9 +106,36 @@ macOS ties names to). If you said no, allow `Floodlight WiFi` under System Setti
 Security › Location Services. A width the OS doesn't report (nmcli) shows `—` and counts
 as 20 MHz. Recent Windows may refuse to list networks until the terminal has location access.
 
+## --speedtest
+
+Tests the internet connection against [Cloudflare's speed test](https://speed.cloudflare.com), the
+way its own page does: 20 small requests for latency (the middle one) and jitter (how much one
+differs from the next), then downloads and uploads of growing size until a size takes a second or
+more. The speed is the 90th percentile of those transfers, as Cloudflare reports it, so the small
+ones that never fill the link don't drag it down.
+
+```
+  # cloudflare LAX · Los Angeles · Example Fiber · median 240.1 Mbps down · 40.2 Mbps up
+
+  # time      latency    jitter     download      upload        server
+    14:05:09  12.1 ms    0.8 ms     241.3 Mbps    40.2 Mbps     LAX · Los Angeles
+    14:05:34  11.9 ms    1.1 ms     238.7 Mbps    40.5 Mbps     LAX · Los Angeles
+```
+
+```bash
+floodlight --speedtest                     # the screen, one run; ^r runs it again
+floodlight --speedtest --count 6           # six runs, 5 seconds apart
+floodlight --speedtest --count 6 --wait 60 # six runs, a minute apart
+floodlight --speedtest --plain             # print each run's row as it ends
+floodlight --speedtest --count 3 --report speed.pdf   # write them as a PDF report
+```
+
+It talks to Cloudflare through `curl`, which Windows 10 and later, macOS and every Linux have, so
+nothing else needs installing. A test moves a few hundred megabytes on a fast line.
+
 ## --report
 
-Add `--report FILE` to `--sweep` or `--wireless` to run one sweep or survey, write it to `FILE` as
+Add `--report FILE` to `--sweep`, `--wireless` or `--speedtest` to run it, write it to `FILE` as
 a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
@@ -118,6 +147,9 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   shows the network this machine is on and how crowded its channel is, the quietest channel in
   each band, a chart of each band (a lane per network over the slice of spectrum it fills, the
   quietest channel marked), and every network in a table.
+- The speed test's report runs `--count` times (once unless told) and leads with the median
+  download and upload, then the latency, jitter, the Cloudflare data center and the internet
+  provider, a summary of the range across runs, and every run in a table.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.

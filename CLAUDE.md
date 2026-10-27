@@ -6,7 +6,8 @@ The app is **Floodlight**, a terminal tool written in Rust. Each feature is a fl
 sweeps a subnet and shows every address that answered with its MAC, maker and name, under a prompt
 that filters the rows as you type, so a camera or switch you just plugged in is found by the MAC
 on its label (or the other way round). `--wireless` lists the WiFi networks in earshot and how
-their channels overlap. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+their channels overlap. `--speedtest` measures the internet connection's download, upload, latency
+and jitter against Cloudflare. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -123,6 +124,8 @@ cargo run -- --sweep --plain           # print the table and exit (for pipes, sc
 cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac, maker or name fragment
 cargo run -- --wireless                # the WiFi networks heard here and how their channels overlap
 cargo run -- --wireless --plain        # the same as a table on stdout
+cargo run -- --speedtest               # download, upload, latency and jitter against Cloudflare
+cargo run -- --speedtest --count 3 --wait 10 --plain  # three runs, 10 s apart, printed
 cargo run -- --sweep --report out.pdf  # one sweep written as a PDF report, then exit (--wireless too)
 cargo run -- --wireless --report out.pdf --scan-for 20  # scan 20 s before writing (default 10)
 
@@ -137,7 +140,8 @@ cargo build --release             # the optimised binary, at target/release/<bin
 What each OS needs before the first build: Rust (rustup) and a C compiler (`base-devel` on Arch,
 `build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools with
 the "Desktop development with C++" workload on Windows). At run time: `ping`, and `ip` (iproute2)
-or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying.
+or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying. For `--speedtest`: `curl`,
+which ships with Windows 10 and later, macOS and every Linux.
 For `--wireless`: `nmcli` or `iw` on Linux, nothing extra on Windows (it asks the wifi service through windows-sys); on macOS the build compiles a
 Swift helper with `swiftc` (part of Xcode's command line tools).
 
@@ -183,6 +187,13 @@ meanwhile; `wifi/trend.rs` keeps every access point heard and tracks its signal 
 Tab cycles channel, signal (ranked once when chosen, so rows hold still) and name order;
 Ctrl+R forgets them and starts over. `--plain` prints one scan.
 
+`--speedtest`: `floodlight --speedtest` opens a screen with a row a run and fills it in as the run
+goes: latency and jitter from 20 empty requests, then downloads and uploads of growing size until
+one size takes a second (Cloudflare's own method, reporting the 90th percentile). It shells out to
+`curl` (one `curl` per size, so the connection stays warm, and its `-w` timings read a line per
+transfer) rather than link an HTTP and TLS crate. `--count N` runs it N times, `--wait SECONDS`
+apart (5 by default); Ctrl+R runs the same again once it is done.
+
 There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -191,8 +202,8 @@ and only ever talks to the screen through `Event`s.
 
 ### Folder layout
 
-The code is split by *what it knows about*. The rule that keeps it organised: **`scan/`, `wifi/`
-and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
+The code is split by *what it knows about*. The rule that keeps it organised: **`scan/`, `wifi/`,
+`speedtest/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
 key wiring.
 
 ```
@@ -221,6 +232,10 @@ src/
     channels.rs          channels as frequencies: bands, the slice a network fills, who shares or
                          overlaps it, the quietest channel, the strip that draws a band
     trend.rs             each access point's signal across scans: change and peak, gone or heard
+  speedtest/             the speed test, no UI
+    cloudflare.rs        speed.cloudflare.com through curl: the transfers, their timings, /meta's server
+    runs.rs              the runs: the sizes, the Event enum the screen hears, latency, jitter and
+                         the 90th percentile speeds
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
@@ -228,11 +243,13 @@ src/
     sheet.rs             the report's page: header card, summary, headings, tables, page breaks, footer
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
+    speedtest.rs         the speed test's report: the medians, the summary, a row a run
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
+    speedtest.rs         the speed test screen: a row a run, the result being measured in yellow
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```

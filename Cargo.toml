@@ -23,8 +23,9 @@ ipnet = "2"
 ratatui = "0.30"
 # Reading ping's round trip and the ARP table's lines.
 regex = "1"
-# Runs the sweep: 128 pings at once, each a child process, and the name lookups beside them.
-tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros"] }
+# Runs the sweep: 128 pings at once, each a child process, and the name lookups beside them;
+# and the speed test's curl, read a line at a time as each transfer ends.
+tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows' own wifi service (wlanapi): ask it to scan and read what it heard, which netsh can't.

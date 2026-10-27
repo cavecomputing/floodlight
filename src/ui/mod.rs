@@ -1,8 +1,9 @@
-//! Everything on screen: the sweep's search screen (ratatui), the wireless screen, and
-//! the plain tables.
+//! Everything on screen: the sweep's search screen (ratatui), the wireless screen, the speed
+//! test's screen, and the plain tables.
 
 pub mod app;
 pub mod plain;
+pub mod speedtest;
 pub mod status_bar;
 pub mod theme;
 pub mod wireless;

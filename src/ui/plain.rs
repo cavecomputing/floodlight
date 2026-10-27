@@ -4,10 +4,12 @@
 use crate::scan::hosts::{Host, Query, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep;
+use crate::speedtest::runs::{self, Run};
 use crate::ui::wireless;
 use crate::wifi::channels::{self, Band, Crowd};
 use crate::wifi::survey::{self, Network};
 use std::net::Ipv4Addr;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
 pub fn run(runtime: &Runtime, subnet: Subnet, find: Option<&str>) -> anyhow::Result<()> {
@@ -102,5 +104,42 @@ pub fn network_words(network: &Network, crowd: Crowd) -> [String; 7] {
         format!("{} dBm", network.signal_dbm),
         crowd.words(),
         network.bssid.clone().unwrap_or_else(|| "—".to_string()),
+    ]
+}
+
+pub fn speedtest(runtime: &Runtime, count: u32, wait: Duration) -> anyhow::Result<()> {
+    println!(
+        "# speed test against cloudflare · {count} run{}",
+        if count == 1 { "" } else { "s" }
+    );
+    println!(
+        "{:<8}  {:>8}  {:>8}  {:>12}  {:>12}  server",
+        "time", "latency", "jitter", "download", "upload"
+    );
+    runs::finished(runtime, count, wait, |run| {
+        let [time, latency, jitter, download, upload, server] = run_words(run);
+        println!("{time:<8}  {latency:>8}  {jitter:>8}  {download:>12}  {upload:>12}  {server}");
+    });
+    Ok(())
+}
+
+/// A run's time, latency, jitter, download, upload and server (or why it failed) as the printed
+/// tables write them.
+pub fn run_words(run: &Run) -> [String; 6] {
+    let ms = |value: Option<f32>| value.map_or("—".to_string(), |ms| format!("{ms:.1} ms"));
+    let mbps =
+        |value: Option<f32>| value.map_or("—".to_string(), |mbps| format!("{mbps:.1} Mbps"));
+    let server = match (&run.failed, &run.server) {
+        (Some(why), _) => format!("failed: {why}"),
+        (None, Some(server)) => server.place(),
+        (None, None) => "—".to_string(),
+    };
+    [
+        run.time.clone(),
+        ms(run.latency()),
+        ms(run.jitter()),
+        mbps(run.download()),
+        mbps(run.upload()),
+        server,
     ]
 }
