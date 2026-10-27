@@ -12,7 +12,7 @@ use ureq::{Agent, Body};
 const HOST: &str = "https://speed.cloudflare.com";
 /// How many times a request told to slow down (429) is asked again, as Cloudflare's page does.
 const RETRIES: u32 = 3;
-/// Why a request failed when Cloudflare's firewall turned it away.
+/// How a request's failure starts when Cloudflare's firewall turned it away.
 pub const REFUSED: &str = "cloudflare answered 403";
 
 /// The data center that answered, and the network this machine reached it through.
@@ -128,25 +128,59 @@ pub fn upload(agent: &Agent, body: &[u8]) -> Result<Duration, String> {
 }
 
 /// Makes the request, waiting and asking again when Cloudflare says too many (429), as often as
-/// its page does. Hands back when the answer's request went out, and the answer.
+/// its page does, and once more after a pause when its firewall turns the request away (403).
+/// Hands back when the answer's request went out, and the answer.
 fn answered(
     request: impl Fn() -> Result<Response<Body>, ureq::Error>,
 ) -> Result<(Instant, Response<Body>), String> {
     let mut retries = 0;
     loop {
         let started = Instant::now();
-        let answer = request().map_err(|e| e.to_string())?;
+        let mut answer = request().map_err(|e| e.to_string())?;
         let status = answer.status().as_u16();
         if status == 429 && retries < RETRIES {
             retries += 1;
             std::thread::sleep(retry_after(&answer));
             continue;
         }
+        if status == 403 && retries == 0 {
+            retries += 1;
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
         if !answer.status().is_success() {
-            return Err(format!("cloudflare answered {status}"));
+            return Err(refusal(&mut answer));
         }
         return Ok((started, answer));
     }
+}
+
+/// `cloudflare answered 403 · challenge · ray 8d1f...`: the status, and what Cloudflare's own
+/// headers say about why (`cf-mitigated` names the firewall action, `cf-ray` the request, for
+/// looking the refusal up), with the first words of the body when it is text.
+fn refusal(answer: &mut Response<Body>) -> String {
+    let status = answer.status().as_u16();
+    let mut words = format!("cloudflare answered {status}");
+    let header = |name: &str| -> Option<String> {
+        let value = answer.headers().get(name)?.to_str().ok()?;
+        Some(value.to_string())
+    };
+    if let Some(action) = header("cf-mitigated") {
+        words.push_str(&format!(" · {action}"));
+    }
+    if let Some(ray) = header("cf-ray") {
+        words.push_str(&format!(" · ray {ray}"));
+    }
+    let body = answer.body_mut().read_to_string().unwrap_or_default();
+    if let Some(line) = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('<'))
+    {
+        let line: String = line.chars().take(60).collect();
+        words.push_str(&format!(" · {line}"));
+    }
+    words
 }
 
 /// How long a 429 asks to wait, in seconds; 5 when it doesn't say, as Cloudflare's page assumes.

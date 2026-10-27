@@ -253,7 +253,7 @@ fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
                     Ok(took) => took,
                     // Cloudflare's firewall sometimes refuses uploads partway through a run; the
                     // ones already measured stand, and the downloads carry on.
-                    Err(why) if why == cloudflare::REFUSED && uploads > 0 => {
+                    Err(why) if why.starts_with(cloudflare::REFUSED) && uploads > 0 => {
                         measured.push(phase);
                         break;
                     }
