@@ -4,10 +4,9 @@
 //! does the listing.
 
 use super::channels::{self, Band};
-use super::trend;
+use super::trend::Trend;
 use crate::brand;
 use crate::scan::hosts::normalize_mac;
-use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -65,27 +64,19 @@ pub async fn survey() -> Result<Vec<Network>, String> {
 /// that only answers now and then still makes the list. A scan that fails is skipped.
 pub async fn survey_for(long: Duration) -> Result<Vec<Network>, String> {
     let started = Instant::now();
-    let mut networks = survey().await?;
+    let mut trend = Trend::default();
+    trend.record(&survey().await?);
     while started.elapsed() < long {
         tokio::time::sleep(Duration::from_secs(1)).await;
         if let Ok(latest) = survey().await {
-            networks = merged(networks, latest);
+            trend.record(&latest);
         }
     }
-    Ok(networks)
-}
-
-/// The latest scan, plus the networks from earlier scans it didn't hear, as they were last heard.
-pub fn merged(earlier: Vec<Network>, latest: Vec<Network>) -> Vec<Network> {
-    let heard: HashSet<String> = latest.iter().map(trend::key).collect();
-    let mut networks = latest;
-    networks.extend(
-        earlier
-            .into_iter()
-            .filter(|network| !heard.contains(&trend::key(network))),
-    );
-    in_order(&mut networks);
-    networks
+    Ok(trend
+        .networks()
+        .into_iter()
+        .map(|(network, _)| network)
+        .collect())
 }
 
 /// By band and channel, loudest first on each channel.
@@ -417,26 +408,6 @@ pub fn parse_netsh(text: &str) -> Vec<Network> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn keeps_every_network_heard_across_scans() {
-        let heard = |bssid: &str, signal_dbm| Network {
-            ssid: Some("test".to_string()),
-            bssid: Some(bssid.to_string()),
-            freq_mhz: 2437,
-            width_mhz: None,
-            signal_dbm,
-            connected: false,
-        };
-        let earlier = vec![
-            heard("02:00:00:00:00:01", -60),
-            heard("02:00:00:00:00:02", -88),
-        ];
-        let latest = vec![heard("02:00:00:00:00:01", -55)];
-        let networks = merged(earlier, latest);
-        let signals: Vec<i32> = networks.iter().map(|network| network.signal_dbm).collect();
-        assert_eq!(signals, [-55, -88]);
-    }
 
     #[test]
     fn reads_nmcli() {
