@@ -9,6 +9,7 @@ use crate::ui::plain;
 use crate::wifi::channels::{self, Band};
 use crate::wifi::survey::{self, Network};
 use std::path::Path;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
 const COLUMNS: [Column; 7] = [
@@ -56,6 +57,9 @@ const COLUMNS: [Column; 7] = [
     },
 ];
 
+/// How long the report keeps scanning before it writes: weak networks often turn up only in the
+/// second or third scan.
+const LISTEN: Duration = Duration::from_secs(8);
 /// Lanes in one band's chart; quieter networks past this are left out (the table has them all).
 const MOST_LANES: usize = 48;
 const LANE: f32 = 10.0;
@@ -63,8 +67,9 @@ const LANE: f32 = 10.0;
 const NAMES: f32 = 130.0;
 
 pub fn write(runtime: &Runtime, path: &Path) -> anyhow::Result<()> {
+    println!("scanning for {} s", LISTEN.as_secs());
     let networks = runtime
-        .block_on(survey::survey())
+        .block_on(survey::survey_for(LISTEN))
         .map_err(anyhow::Error::msg)?;
     std::fs::write(path, document(&networks))?;
     println!("wrote {}", path.display());
