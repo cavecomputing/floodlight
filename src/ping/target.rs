@@ -47,7 +47,7 @@ pub fn choose(typed: Option<&str>) -> anyhow::Result<Target> {
 
 /// The router this machine sends the internet's traffic through, from the OS's route table.
 #[cfg(windows)]
-fn gateway() -> Option<Ipv4Addr> {
+pub fn gateway() -> Option<Ipv4Addr> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{GetBestRoute, MIB_IPFORWARDROW};
     // SAFETY: a zeroed route is a valid one to fill in: numbers only.
     let mut route: MIB_IPFORWARDROW = unsafe { std::mem::zeroed() };
@@ -60,7 +60,7 @@ fn gateway() -> Option<Ipv4Addr> {
 
 /// Linux reads its route table from /proc; macOS asks `route`.
 #[cfg(not(windows))]
-fn gateway() -> Option<Ipv4Addr> {
+pub fn gateway() -> Option<Ipv4Addr> {
     if cfg!(target_os = "macos") {
         let output = std::process::Command::new("route")
             .args(["-n", "get", "default"])

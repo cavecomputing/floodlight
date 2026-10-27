@@ -1,5 +1,6 @@
 //! Which subnet to sweep: the one typed on the command line, or the one this machine is on.
 
+use crate::ping::target::gateway;
 use anyhow::{Context, bail};
 use ipnet::Ipv4Net;
 use std::net::Ipv4Addr;
@@ -19,7 +20,7 @@ pub fn choose(typed: Option<&str>) -> anyhow::Result<Subnet> {
     let mine = interfaces();
     let mut subnet = match typed {
         Some(text) => parse(text)?,
-        None => local(&mine).context(
+        None => local(&mine, gateway()).context(
             "no network interface with an IPv4 address was found; give the subnet, like 192.168.1.0/24",
         )?,
     };
@@ -51,14 +52,15 @@ fn parse(text: &str) -> anyhow::Result<Subnet> {
     })
 }
 
-/// Every interface's address with its subnet, loopback and link-local left out.
+/// Every connected interface's address with its subnet, loopback and link-local left out.
 fn interfaces() -> Vec<(String, Ipv4Net)> {
     let Ok(found) = if_addrs::get_if_addrs() else {
         return Vec::new();
     };
     found
         .into_iter()
-        .filter(|interface| !interface.is_loopback())
+        // An unplugged adapter can keep a fixed address it can't reach anything on.
+        .filter(|interface| !interface.is_loopback() && interface.is_oper_up())
         .filter_map(|interface| match interface.addr {
             if_addrs::IfAddr::V4(v4) if !v4.ip.is_link_local() => {
                 let prefix = u32::from(v4.netmask).count_ones() as u8;
@@ -70,15 +72,23 @@ fn interfaces() -> Vec<(String, Ipv4Net)> {
 }
 
 /// The LAN this machine is most likely on: a private range of a sweepable size, on a wired or
-/// wireless interface (`en*`, `eth*`, `wl*`) before VPN tunnels and bridges.
-fn local(mine: &[(String, Ipv4Net)]) -> Option<Subnet> {
+/// wireless interface (`en*`, `eth*`, `wl*`) before VPN tunnels and bridges, and the one the
+/// gateway is on before the rest. Windows names its interfaces for people (`Wi-Fi`, `VirtualBox
+/// Host-Only Network`), so there the gateway is what tells the LAN from a virtual machine's.
+fn local(mine: &[(String, Ipv4Net)], gateway: Option<Ipv4Addr>) -> Option<Subnet> {
     let mut candidates: Vec<&(String, Ipv4Net)> = mine
         .iter()
         .filter(|(_, net)| (WIDEST_PREFIX..=30).contains(&net.prefix_len()))
         .collect();
     candidates.sort_by_key(|(name, net)| {
         let lan_like = name.starts_with("en") || name.starts_with("eth") || name.starts_with("wl");
-        (!net.addr().is_private(), !lan_like, name.clone())
+        let has_gateway = gateway.is_some_and(|gateway| net.contains(&gateway));
+        (
+            !net.addr().is_private(),
+            !lan_like,
+            !has_gateway,
+            name.clone(),
+        )
     });
     let (name, net) = candidates.first()?;
     Some(Subnet {
@@ -117,9 +127,23 @@ mod tests {
             ("bridge100".to_string(), "192.168.64.1/24".parse().unwrap()),
             ("en0".to_string(), "192.168.1.20/24".parse().unwrap()),
         ];
-        let subnet = local(&mine).unwrap();
+        let subnet = local(&mine, None).unwrap();
         assert_eq!(subnet.net.to_string(), "192.168.1.0/24");
         assert_eq!(subnet.interface.as_deref(), Some("en0"));
         assert_eq!(subnet.own, Some(Ipv4Addr::new(192, 168, 1, 20)));
+    }
+
+    #[test]
+    fn prefers_the_gateways_lan_on_windows() {
+        // VirtualBox's host-only network sorts before Wi-Fi by name.
+        let mine = vec![
+            (
+                "VirtualBox Host-Only Network".to_string(),
+                "192.168.56.1/24".parse().unwrap(),
+            ),
+            ("Wi-Fi".to_string(), "192.168.1.20/24".parse().unwrap()),
+        ];
+        let subnet = local(&mine, Some(Ipv4Addr::new(192, 168, 1, 1))).unwrap();
+        assert_eq!(subnet.interface.as_deref(), Some("Wi-Fi"));
     }
 }
