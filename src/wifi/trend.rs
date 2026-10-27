@@ -64,7 +64,8 @@ pub enum Sort {
     Channel,
     /// Loudest first, as ranked when chosen (see `sort`).
     Signal,
-    /// By network name, hidden ones last.
+    /// By network name, hidden ones last; access points sharing a name loudest first, as ranked
+    /// when chosen.
     Name,
 }
 
@@ -86,7 +87,7 @@ impl Sort {
     }
 }
 
-/// Each access point's place, loudest first, to sort by signal with. Taken once when signal is
+/// Each access point's place, loudest first, to sort by signal with. Taken once when an order is
 /// chosen, so rows don't jump about as signals move from scan to scan.
 pub fn ranks(networks: &[(Network, Reading)]) -> HashMap<String, usize> {
     let mut loudest: Vec<&Network> = networks.iter().map(|(network, _)| network).collect();
@@ -105,9 +106,12 @@ pub fn sort(networks: &mut [(Network, Reading)], sort: Sort, ranks: &HashMap<Str
         Sort::Channel => {}
         Sort::Signal => networks
             .sort_by_key(|(network, _)| ranks.get(&key(network)).copied().unwrap_or(usize::MAX)),
-        Sort::Name => networks.sort_by_key(|(network, _)| match &network.ssid {
-            Some(name) => (false, name.to_lowercase()),
-            None => (true, String::new()),
+        Sort::Name => networks.sort_by_key(|(network, _)| {
+            let rank = ranks.get(&key(network)).copied().unwrap_or(usize::MAX);
+            match &network.ssid {
+                Some(name) => (false, name.to_lowercase(), rank),
+                None => (true, String::new(), rank),
+            }
         }),
     }
 }
@@ -166,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn sorts_by_name_with_hidden_ones_last() {
+    fn sorts_by_name_then_signal_with_hidden_ones_last() {
         let mut trend = Trend::default();
         let named = |ssid: Option<&str>, bssid: &str| Network {
             ssid: ssid.map(String::from),
@@ -176,14 +180,28 @@ mod tests {
             named(None, "aa:bb:cc:00:00:01"),
             named(Some("cafe"), "aa:bb:cc:00:00:02"),
             named(Some("Attic"), "aa:bb:cc:00:00:03"),
+            Network {
+                signal_dbm: -40,
+                ..named(Some("cafe"), "aa:bb:cc:00:00:04")
+            },
         ]);
         let mut networks = trend.networks();
-        sort(&mut networks, Sort::Name, &HashMap::new());
-        let names: Vec<Option<&str>> = networks
+        let ranks = ranks(&networks);
+        sort(&mut networks, Sort::Name, &ranks);
+        let order: Vec<&str> = networks
             .iter()
-            .map(|(network, _)| network.ssid.as_deref())
+            .map(|(network, _)| network.bssid.as_deref().unwrap())
             .collect();
-        assert_eq!(names, [Some("Attic"), Some("cafe"), None]);
+        // Attic, then the two cafes loudest first, then the hidden one.
+        assert_eq!(
+            order,
+            [
+                "aa:bb:cc:00:00:03",
+                "aa:bb:cc:00:00:04",
+                "aa:bb:cc:00:00:02",
+                "aa:bb:cc:00:00:01"
+            ]
+        );
     }
 
     #[test]

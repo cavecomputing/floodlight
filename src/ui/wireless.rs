@@ -107,8 +107,8 @@ impl Screen<'_> {
             if let Ok(heard) = self.survey.try_recv() {
                 if let (Ok(networks), _) = &heard {
                     self.trend.record(networks);
-                    // Signal order chosen before anything was heard ranks the first scan in.
-                    if self.sort == Sort::Signal && self.ranks.is_empty() {
+                    // An order chosen before anything was heard ranks the first scan in.
+                    if self.sort != Sort::Channel && self.ranks.is_empty() {
                         self.ranks = trend::ranks(&self.trend.networks());
                     }
                 }
