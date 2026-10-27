@@ -4,6 +4,8 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+/// The first tool that takes the text wins. One that is installed but can't (wl-copy under X11,
+/// say) is passed over for the next; its complaint is the error when none works.
 pub fn copy(text: &str) -> Result<(), String> {
     let tools: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
         &[("pbcopy", &[])]
@@ -16,6 +18,7 @@ pub fn copy(text: &str) -> Result<(), String> {
             ("xsel", &["--clipboard", "--input"]),
         ]
     };
+    let mut failed = None;
     for (program, args) in tools {
         let Ok(mut child) = Command::new(program)
             .args(*args)
@@ -26,16 +29,16 @@ pub fn copy(text: &str) -> Result<(), String> {
         else {
             continue;
         };
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(text.as_bytes())
-                .map_err(|error| format!("{program}: {error}"))?;
-        }
-        return match child.wait() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(status) => Err(format!("{program} exited with {status}")),
-            Err(error) => Err(format!("{program}: {error}")),
+        let written = match child.stdin.take() {
+            Some(mut stdin) => stdin.write_all(text.as_bytes()),
+            None => Ok(()),
         };
+        failed = Some(match written.and_then(|()| child.wait()) {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(status) => format!("{program} exited with {status}"),
+            Err(error) => format!("{program}: {error}"),
+        });
     }
-    Err("no clipboard tool found (wl-clipboard, xclip or xsel)".to_string())
+    Err(failed
+        .unwrap_or_else(|| "no clipboard tool found (wl-clipboard, xclip or xsel)".to_string()))
 }
