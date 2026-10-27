@@ -274,9 +274,13 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
             let took = match transfer(agent, phase, bytes, &body, streams) {
                 Ok(took) => took,
                 // Cloudflare's firewall sometimes refuses a transfer partway through a run,
-                // whichever way it goes. What that direction measured so far stands, and the
-                // other carries on; only a refusal before anything was measured fails the run.
-                Err(why) if why.starts_with(cloudflare::REFUSED) => {
+                // whichever way it goes, or says this machine has fetched enough for a while.
+                // What that direction measured so far stands, and the other carries on; only a
+                // refusal before anything was measured fails the run.
+                Err(why)
+                    if why.starts_with(cloudflare::REFUSED)
+                        || why.starts_with(cloudflare::LIMITED) =>
+                {
                     let some = match phase {
                         Phase::Upload => uploads > 0,
                         _ => downloads > 0,

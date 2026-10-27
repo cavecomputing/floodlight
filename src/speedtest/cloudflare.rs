@@ -14,6 +14,11 @@ const HOST: &str = "https://speed.cloudflare.com";
 const RETRIES: u32 = 3;
 /// How a request's failure starts when Cloudflare's firewall turned it away.
 pub const REFUSED: &str = "cloudflare answered 403";
+/// How it starts when Cloudflare said too many (429) and to come back later than is worth waiting.
+pub const LIMITED: &str = "cloudflare answered 429";
+/// The longest a 429's wait is waited out. Once a machine has fetched a lot in a while Cloudflare
+/// asks it to wait 3600 s, which would leave the test silent for an hour.
+const LONGEST_WAIT: Duration = Duration::from_secs(10);
 
 /// The data center that answered, and the network this machine reached it through.
 #[derive(Clone, Debug, PartialEq)]
@@ -142,7 +147,8 @@ pub fn upload(agent: &Agent, body: &[u8]) -> Result<Duration, String> {
 }
 
 /// Makes the request, waiting and asking again when Cloudflare says too many (429), as often as
-/// its page does. Hands back when the answer's request went out, and the answer.
+/// its page does, unless it asks for a longer wait than `LONGEST_WAIT`. Hands back when the
+/// answer's request went out, and the answer.
 fn answered(
     request: impl Fn() -> Result<Response<Body>, ureq::Error>,
 ) -> Result<(Instant, Response<Body>), String> {
@@ -151,9 +157,10 @@ fn answered(
         let started = Instant::now();
         let mut answer = request().map_err(|e| e.to_string())?;
         let status = answer.status().as_u16();
-        if status == 429 && retries < RETRIES {
+        let wait = retry_after(&answer);
+        if status == 429 && retries < RETRIES && wait <= LONGEST_WAIT {
             retries += 1;
-            std::thread::sleep(retry_after(&answer));
+            std::thread::sleep(wait);
             continue;
         }
         if !answer.status().is_success() {
