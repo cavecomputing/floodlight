@@ -149,7 +149,8 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   quietest channel marked), and every network in a table.
 - The speed test's report runs `--count` times (once unless told) and leads with the median
   download and upload, then the latency, jitter, the Cloudflare data center and the internet
-  provider, a summary of the range across runs, and every run in a table.
+  provider, a summary of the range across runs, a chart each of download, upload and latency
+  across the runs (when there are several) to show the trend, and every run in a table.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.

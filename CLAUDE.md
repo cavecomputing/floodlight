@@ -243,7 +243,7 @@ src/
     sheet.rs             the report's page: header card, summary, headings, tables, page breaks, footer
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
-    speedtest.rs         the speed test's report: the medians, the summary, a row a run
+    speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report

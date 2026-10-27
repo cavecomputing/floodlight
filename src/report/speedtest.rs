@@ -1,7 +1,10 @@
 //! The speed test as a report: download and upload up top, what they mean in a few sentences,
-//! and a table of every run.
+//! a chart of each result across the runs when there are several, and a table of every run.
 
-use super::sheet::{self, AQUA, COOL, Cell, Column, FG, MUTED, SUBTLE, Sheet};
+use super::pdf::{self, Font};
+use super::sheet::{
+    self, ACCENT, AQUA, BORDER, COOL, Cell, Column, FG, LEFT, MUTED, SUBTLE, SURFACE, Sheet, WIDTH,
+};
 use crate::speedtest::runs::{self, Run, Runs};
 use crate::ui::plain;
 use std::path::Path;
@@ -119,9 +122,111 @@ pub fn document(runs: &Runs, wait: Duration) -> Vec<u8> {
             ]
         })
         .collect();
+    if runs.runs.len() > 1 {
+        let times: Vec<&str> = runs.runs.iter().map(|run| run.time.as_str()).collect();
+        let each = |result: fn(&Run) -> Option<f32>| runs.runs.iter().map(result).collect();
+        chart(
+            &mut sheet,
+            "Download across runs",
+            &times,
+            each(Run::download),
+            "Mbps",
+            AQUA,
+        );
+        chart(
+            &mut sheet,
+            "Upload across runs",
+            &times,
+            each(Run::upload),
+            "Mbps",
+            COOL,
+        );
+        chart(
+            &mut sheet,
+            "Latency across runs",
+            &times,
+            each(Run::latency),
+            "ms",
+            ACCENT,
+        );
+    }
     sheet.heading("Runs", 36.0);
     sheet.table(&COLUMNS, &rows);
     sheet.finish()
+}
+
+const CHART_HEIGHT: f32 = 90.0;
+/// The chart's left column, where the scale's numbers go.
+const SCALE: f32 = 64.0;
+
+/// One result across the runs as a line in a card: a point a run, joined to the next, with the
+/// scale on the left and the runs' times along the bottom. A run that didn't measure it leaves a
+/// gap.
+fn chart(
+    sheet: &mut Sheet,
+    title: &str,
+    times: &[&str],
+    values: Vec<Option<f32>>,
+    unit: &str,
+    ink: pdf::Rgb,
+) {
+    sheet.heading(title, CHART_HEIGHT);
+    let (x, y) = (LEFT, sheet.y);
+    let pdf = &mut sheet.pdf;
+    pdf.clipped((x, y, WIDTH, CHART_HEIGHT, 8.0), BORDER, |pdf| {
+        pdf.rect(x, y, WIDTH, CHART_HEIGHT, SURFACE)
+    });
+    let (top, bottom) = (y + 16.0, y + CHART_HEIGHT - 26.0);
+    let (left, right) = (x + SCALE, x + WIDTH - 24.0);
+    let most = values.iter().flatten().copied().fold(0.0, f32::max);
+    let ceiling = scale_top(most);
+    for share in [0.0, 0.5, 1.0] {
+        let line = bottom - share * (bottom - top);
+        pdf.line((left, line), (right, line), 0.5, BORDER);
+        let label = format!("{} {unit}", ceiling * share);
+        let label_left = left - 8.0 - pdf::width(Font::Mono, 6.0, &label);
+        pdf.text(label_left, line + 2.0, Font::Mono, 6.0, SUBTLE, &label);
+    }
+
+    let step = (right - left) / (times.len() - 1).max(1) as f32;
+    let at = |i: usize, value: f32| {
+        (
+            left + step * i as f32,
+            bottom - value / ceiling * (bottom - top),
+        )
+    };
+    // Every time would crowd the axis past a dozen runs; every few is enough to read it by.
+    let every = times.len().div_ceil(12);
+    for (i, time) in times.iter().enumerate().step_by(every) {
+        let centre = left + step * i as f32;
+        let label_left = centre - pdf::width(Font::Mono, 6.0, time) / 2.0;
+        pdf.text(label_left, bottom + 14.0, Font::Mono, 6.0, SUBTLE, time);
+    }
+    for (i, pair) in values.windows(2).enumerate() {
+        if let [Some(from), Some(to)] = pair {
+            pdf.line(at(i, *from), at(i + 1, *to), 1.5, ink);
+        }
+    }
+    for (i, value) in values.iter().enumerate() {
+        if let Some(value) = value {
+            let (cx, cy) = at(i, *value);
+            pdf.bar(cx - 2.5, cy - 2.5, 5.0, 5.0, ink);
+        }
+    }
+    sheet.y += CHART_HEIGHT + 4.0;
+}
+
+/// The top of a chart's scale: 1, 2 or 5 times a power of ten, at or just above `most`.
+fn scale_top(most: f32) -> f32 {
+    if most <= 0.0 {
+        return 1.0;
+    }
+    let power = 10f32.powf(most.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .into_iter()
+        .map(|times| times * power)
+        .find(|top| *top >= most)
+        .unwrap_or(10.0 * power)
 }
 
 /// What the runs measured, in a sentence or three.
@@ -228,6 +333,15 @@ mod tests {
              1.5 ms from one to the next (the jitter). The run at 14:03:00 failed: cloudflare \
              answered 429."
         );
+    }
+
+    #[test]
+    fn rounds_the_top_of_a_scale_up() {
+        assert_eq!(scale_top(0.0), 1.0);
+        assert_eq!(scale_top(241.3), 500.0);
+        assert_eq!(scale_top(180.0), 200.0);
+        assert_eq!(scale_top(12.5), 20.0);
+        assert_eq!(scale_top(100.0), 100.0);
     }
 
     #[test]
