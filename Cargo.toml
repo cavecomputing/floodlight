@@ -5,9 +5,11 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+# One error type for main and the outputs, with a line of context on what failed.
 anyhow = "1"
 # The date and time on a report, in this machine's time zone.
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+# The command line: the flags, their rules (which go together) and the help.
 clap = { version = "4", features = ["derive"] }
 # The data folder on each OS, where the macOS WiFi helper app is written.
 directories = "6"
@@ -17,8 +19,11 @@ dns-lookup = "4"
 if-addrs = "0.15"
 # Reads 192.168.1.0/24 and walks its addresses.
 ipnet = "2"
+# The screens: drawing the table and the status bar, reading key presses.
 ratatui = "0.30"
+# Reading ping's round trip and the ARP table's lines.
 regex = "1"
+# Runs the sweep: 128 pings at once, each a child process, and the name lookups beside them.
 tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync", "time", "macros"] }
 
 [profile.release]
