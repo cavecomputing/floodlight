@@ -30,7 +30,12 @@ pub fn run(runtime: &Runtime, subnet: Subnet, find: Option<&str>) -> anyhow::Res
         hosts.took.unwrap_or_default().as_secs_f32()
     );
     if shown.is_empty() {
-        println!("# nothing matches");
+        let why = if query.is_empty() {
+            "nothing answered"
+        } else {
+            "nothing matches"
+        };
+        println!("# {why}");
         return Ok(());
     }
     println!(
