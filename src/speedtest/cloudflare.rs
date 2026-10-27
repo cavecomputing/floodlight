@@ -53,7 +53,12 @@ pub fn agent() -> Agent {
 /// test's own `/locations` and `/meta` when they say. None if the trace didn't answer.
 pub fn server(agent: &Agent) -> Option<Server> {
     let text = |path: &str| -> Option<String> {
-        let mut answer = agent.get(format!("{HOST}{path}")).call().ok()?;
+        let mut answer = agent
+            .get(format!("{HOST}{path}"))
+            // `/locations` and `/meta` refuse (403) a request that doesn't come from the page.
+            .header("referer", format!("{HOST}/"))
+            .call()
+            .ok()?;
         if !answer.status().is_success() {
             return None;
         }
@@ -89,15 +94,24 @@ fn field(json: &str, name: &str) -> Option<String> {
         .map(|found| found[1].to_string())
 }
 
-/// How long the server says it spent, from a `server-timing` header like
-/// `cfRequestDuration;dur=12.3`.
+/// How long the server says it spent, from its `server-timing` headers: `cfRequestDuration;dur=12.3`
+/// where it gives one, otherwise its parts added up (`cfSpeedEdge;dur=4, cfSpeedWorker;dur=20`),
+/// as Cloudflare's page reads them.
 pub fn read_server_time(header: &str) -> Option<Duration> {
-    let found = Regex::new(r"dur=([0-9.]+)")
-        .expect("a valid pattern")
-        .captures(header)?;
-    Some(Duration::from_secs_f64(
-        found[1].parse::<f64>().ok()? / 1000.0,
-    ))
+    let total = |name: &str| -> f64 {
+        Regex::new(&format!(r"(?i)(?:^|,\s*){name};\s*dur=([0-9.]+)"))
+            .expect("a valid pattern")
+            .captures_iter(header)
+            .filter_map(|found| found[1].parse::<f64>().ok())
+            .sum()
+    };
+    let request = total("cfReq(?:uest)?Dur(?:ation)?");
+    let ms = if request > 0.01 {
+        request
+    } else {
+        total("cfSpeed[a-z]*")
+    };
+    (ms > 0.01).then(|| Duration::from_secs_f64(ms / 1000.0))
 }
 
 /// Fetches `bytes`, and how long it took: from asking to the last byte, less the server's time.
@@ -188,13 +202,15 @@ fn retry_after(answer: &Response<Body>) -> Duration {
     Duration::from_secs(seconds)
 }
 
+/// The server's time, from every `server-timing` header it sent (there can be more than one).
 fn server_time(answer: &Response<Body>) -> Duration {
-    answer
+    let headers: Vec<&str> = answer
         .headers()
-        .get("server-timing")
-        .and_then(|header| header.to_str().ok())
-        .and_then(read_server_time)
-        .unwrap_or_default()
+        .get_all("server-timing")
+        .iter()
+        .filter_map(|header| header.to_str().ok())
+        .collect();
+    read_server_time(&headers.join(", ")).unwrap_or_default()
 }
 
 /// `bytes` moved in `took`, as megabits a second, with the 0.5% Cloudflare's page adds for the
@@ -243,6 +259,8 @@ mod tests {
             Some(Duration::from_micros(12_500))
         );
         assert_eq!(read_server_time("cfL4;desc=\"?proto=TCP\""), None);
+        let parts = "cfSpeedEdge;dur=4, cfSpeedWorker;dur=20, cfL4;desc=\"?proto=TCP&rtt=16867\"";
+        assert_eq!(read_server_time(parts), Some(Duration::from_millis(24)));
     }
 
     #[test]
