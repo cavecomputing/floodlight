@@ -4,7 +4,7 @@
 
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
-use crate::ui::speedtest::{PLOT_ROWS, graph};
+use crate::ui::graph::{PLOT_ROWS, graph};
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{self, inset, plain};

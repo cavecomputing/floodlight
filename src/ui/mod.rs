@@ -5,6 +5,7 @@
 pub mod app;
 pub mod calc;
 pub mod dns;
+pub mod graph;
 pub mod lanspeed;
 pub mod ping;
 pub mod plain;

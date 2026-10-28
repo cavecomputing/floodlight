@@ -4,7 +4,7 @@
 
 use crate::lanspeed::runs::{self, Event, Run, Runs, Settings};
 use crate::lanspeed::wire::{Direction, Protocol};
-use crate::ui::speedtest::{PLOT_ROWS, graph};
+use crate::ui::graph::{PLOT_ROWS, graph};
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{self, inset, plain};
