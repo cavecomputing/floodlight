@@ -29,6 +29,7 @@ mode's own options.
 | [`ping`](#ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
 | [`dns`](#dns) | a name's records from the system's name server or any other, timed, authoritative or not, and its whois |
 | [`lanspeed`](#lanspeed) | the throughput between this machine and another on the LAN, iperf-style, over TCP or UDP |
+| [`wake`](#wake) | a Wake-on-LAN magic packet to wake a sleeping machine by its MAC |
 
 | Shared option | What it does |
 |---|---|
@@ -267,6 +268,23 @@ talks only to another copy of Floodlight, not to iperf, since the two don't spea
 protocol. UDP at `--bitrate 0` sends as fast as the machine can, which floods most links and shows
 up as loss; a rate just under what TCP reached is the useful test. The server's port has to be
 open on its firewall, TCP and UDP both.
+
+## wake
+
+Wakes a sleeping machine by sending a Wake-on-LAN magic packet to its MAC address, then prints a
+line and exits. The machine's network card has to have Wake-on-LAN turned on (in its BIOS or
+driver settings). Nothing answers a wake packet, so the line says it was sent, not that the
+machine woke; a `ping` a minute later says that.
+
+```bash
+floodlight wake aa:bb:cc:dd:ee:ff                 # broadcast to every machine on this network
+floodlight wake AA-BB-CC-DD-EE-FF aabb.ccdd.eeff  # several at once, in any of the usual formats
+floodlight wake aa:bb:cc:dd:ee:ff --broadcast 192.168.1.255   # that subnet's broadcast, when this machine has several networks
+floodlight wake aa:bb:cc:dd:ee:ff --port 7        # another port (9 by default)
+```
+
+The packet is a broadcast, so it stays on the network this machine is on unless a router is set
+to forward it; `--broadcast` can name the far subnet's broadcast address when one is.
 
 ## --report
 

@@ -10,10 +10,12 @@ mod report;
 mod scan;
 mod speedtest;
 mod ui;
+mod wake;
 mod wifi;
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -146,6 +148,20 @@ enum Mode {
         /// Also ask whois who registered the domain, or who holds the address.
         #[arg(long)]
         whois: bool,
+    },
+    /// Wake a sleeping machine with a Wake-on-LAN magic packet, broadcast to its MAC address.
+    Wake {
+        /// The MAC addresses to wake, like aa:bb:cc:dd:ee:ff, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff
+        /// or aabbccddeeff.
+        #[arg(value_name = "MAC", required = true)]
+        macs: Vec<String>,
+        /// Where to send it: the broadcast address of the machine's subnet, like 192.168.1.255,
+        /// when this machine has several networks, or an address a router forwards from.
+        #[arg(long, value_name = "ADDRESS", default_value_t = Ipv4Addr::BROADCAST)]
+        broadcast: Ipv4Addr,
+        /// The UDP port to send it to (9, the usual one, or 7 for some cards).
+        #[arg(long, value_name = "PORT", default_value_t = wake::PORT)]
+        port: u16,
     },
 }
 
@@ -283,6 +299,28 @@ fn main() -> anyhow::Result<()> {
             ui::dns::print(&lookups, whois.as_ref(), args.plain);
             Ok(())
         }
+        Mode::Wake {
+            macs,
+            broadcast,
+            port,
+        } => {
+            if args.report.is_some() {
+                bail!("wake has nothing to report: it sends a packet and nothing answers");
+            }
+            // Every MAC is read before any is sent, so a typo doesn't leave half of them sent.
+            let macs = macs
+                .iter()
+                .map(|typed| match scan::hosts::normalize_mac(typed) {
+                    Some(mac) => Ok(mac),
+                    None => bail!("{typed} isn't a MAC address, like aa:bb:cc:dd:ee:ff"),
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            for mac in &macs {
+                wake::send(mac, broadcast, port)?;
+                println!("sent a wake packet to {mac} · {broadcast}:{port}");
+            }
+            Ok(())
+        }
     }
 }
 
@@ -363,5 +401,15 @@ mod tests {
         let both = ["lanspeed", "--serve", "--connect", "192.168.1.20"];
         assert!(Args::try_parse_from([brand::BIN].into_iter().chain(both)).is_err());
         assert!(Args::try_parse_from([brand::BIN, "lanspeed", "--serve", "--port", "7"]).is_ok());
+        let wake = ["wake", "aa-bb-cc-dd-ee-ff", "--broadcast", "192.168.1.255"];
+        let args = Args::try_parse_from([brand::BIN].into_iter().chain(wake)).expect("a wake");
+        assert!(matches!(
+            args.mode,
+            Mode::Wake { ref macs, port: 9, .. } if macs.len() == 1
+        ));
+        // A MAC is needed, and the broadcast address is an address.
+        assert!(Args::try_parse_from([brand::BIN, "wake"]).is_err());
+        let named = ["wake", "aa:bb:cc:dd:ee:ff", "--broadcast", "lan"];
+        assert!(Args::try_parse_from([brand::BIN].into_iter().chain(named)).is_err());
     }
 }

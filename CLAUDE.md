@@ -11,7 +11,8 @@ and jitter against Cloudflare. `ping` pings up to five hosts (the gateway by def
 graphing every round trip and counting the ones lost. `dns` looks a name up like dig, from the
 system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
 registered it. `lanspeed` measures the throughput between two machines on the LAN, iperf-style:
-`--serve` on one, `--connect` from the other, over TCP or UDP. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+`--serve` on one, `--connect` from the other, over TCP or UDP. `wake` sends a Wake-on-LAN packet
+to a MAC. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -136,6 +137,7 @@ cargo run -- dns example.com --type a,mx --server 1.1.1.1    # records, timed, a
 cargo run -- dns example.com --whois --report out.pdf        # with who registered it, as a PDF
 cargo run -- lanspeed --serve                                # wait for a client on port 5201, tcp and udp
 cargo run -- lanspeed --connect 192.168.1.20 --udp --bitrate 500 --streams 4 --time 30 --plain
+cargo run -- wake aa:bb:cc:dd:ee:ff --broadcast 192.168.1.255    # the magic packet, one line, exit
 cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
 cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
 
@@ -260,6 +262,11 @@ the OS's default drops datagrams at a few hundred Mbps. Everything is std socket
 timed with `Instant`; `--count` and `--wait` repeat runs like `speedtest`. Checked over loopback
 only, so far.
 
+`wake MAC...`: reads every MAC first (through `normalize_mac`, so any format the sweep reads),
+then broadcasts each its magic packet (six `0xff` bytes, the MAC sixteen times) over UDP to
+`--broadcast` (255.255.255.255 unless told) on `--port` (9), prints a line a MAC and exits.
+Nothing answers a wake packet, so the line says it was sent, not that the machine woke.
+
 There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -317,6 +324,7 @@ src/
     servers.rs           which name servers to ask: typed, or the system's (resolv.conf, GetNetworkParams)
     lookup.rs            one question to one server over UDP or TCP, timed; the domain's own server
     whois.rs             whois over port 43: IANA, the registry, the registrar, and the fields worth showing
+  wake.rs                Wake-on-LAN: the magic packet and the broadcast that sends it, no UI
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
