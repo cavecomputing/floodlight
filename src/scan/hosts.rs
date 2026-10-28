@@ -1,7 +1,8 @@
 //! One row of the table (an address and what the sweep learned about it), the table of them, and
-//! how a typed query matches a row.
+//! how a typed query or a `--filter` matches a row.
 
 use super::sweep::Event;
+use ipnet::Ipv4Net;
 use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -36,11 +37,6 @@ impl Host {
             name: None,
             latency_ms: None,
         }
-    }
-
-    /// Whether the row stays on screen for this query.
-    pub fn shows(&self, query: &Query) -> bool {
-        query.is_empty() || self.hit(query).is_some()
     }
 
     /// Where the query matches, checking the address, then the MAC, the maker and the name.
@@ -146,6 +142,74 @@ impl Query {
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
+}
+
+/// What `--filter` and the screen's prompt keep: the rows matching any of the comma-separated
+/// terms. An address, a range (`192.168.1.10-20` or `192.168.1.10-192.168.1.20`) or a subnet
+/// (`192.168.1.0/28`) keeps those addresses exactly; anything else is a fragment of an address, a
+/// MAC (so its first bytes find a maker's devices), a maker or a name.
+pub struct Filter {
+    terms: Vec<Term>,
+}
+
+enum Term {
+    Addresses(Ipv4Addr, Ipv4Addr),
+    Fragment(Query),
+}
+
+impl Filter {
+    pub fn new(typed: &str) -> Filter {
+        let terms = typed
+            .split(',')
+            .map(str::trim)
+            .filter(|term| !term.is_empty())
+            .map(|term| match addresses(term) {
+                Some((first, last)) => Term::Addresses(first, last),
+                None => Term::Fragment(Query::new(term)),
+            })
+            .collect();
+        Filter { terms }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty()
+    }
+
+    pub fn keeps(&self, host: &Host) -> bool {
+        self.is_empty() || self.hit(host).is_some()
+    }
+
+    /// Where the first term that matches the row matches it. An address term lights the whole
+    /// address.
+    pub fn hit(&self, host: &Host) -> Option<Hit> {
+        self.terms.iter().find_map(|term| match term {
+            Term::Addresses(first, last) => (*first..=*last)
+                .contains(&host.ip)
+                .then(|| Hit::new(Column::Ip, 0, host.ip.to_string().len())),
+            Term::Fragment(query) => host.hit(query),
+        })
+    }
+}
+
+/// The first and last address a term names, when it is an address, a range or a subnet.
+fn addresses(term: &str) -> Option<(Ipv4Addr, Ipv4Addr)> {
+    if let Ok(net) = term.parse::<Ipv4Net>() {
+        return Some((net.network(), net.broadcast()));
+    }
+    if let Ok(ip) = term.parse::<Ipv4Addr>() {
+        return Some((ip, ip));
+    }
+    let (first, last) = term.split_once('-')?;
+    let first: Ipv4Addr = first.trim().parse().ok()?;
+    // `192.168.1.10-20`: the end is just the last number.
+    let last = match last.trim().parse::<u8>() {
+        Ok(end) => {
+            let [a, b, c, _] = first.octets();
+            Ipv4Addr::new(a, b, c, end)
+        }
+        Err(_) => last.trim().parse().ok()?,
+    };
+    Some((first, last))
 }
 
 /// `aa:bb:cc:dd:ee:ff` from however the OS printed it: `a:b:c:d:e:f` (macOS drops leading
@@ -310,9 +374,37 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_query_shows_everything() {
-        assert!(camera().shows(&Query::new("   ")));
+    fn an_empty_query_lights_nothing() {
         assert_eq!(camera().hit(&Query::new("")), None);
+    }
+
+    #[test]
+    fn filters_by_address_range_and_subnet() {
+        let keeps = |typed: &str| Filter::new(typed).keeps(&camera());
+        assert!(keeps(""));
+        assert!(keeps("192.168.1.108"));
+        // A whole address is that address, not a fragment of .1.10x.
+        assert!(!keeps("192.168.1.10"));
+        assert!(keeps("192.168.1.100-110"));
+        assert!(keeps("192.168.1.100 - 192.168.1.120"));
+        assert!(!keeps("192.168.1.1-20"));
+        assert!(keeps("192.168.1.96/28"));
+        assert!(!keeps("192.168.1.0/26"));
+    }
+
+    #[test]
+    fn filters_by_mac_maker_or_name_and_any_term() {
+        let keeps = |typed: &str| Filter::new(typed).keeps(&camera());
+        assert!(keeps("2C-A5-9C"));
+        assert!(keeps("2ca59c0b3d57"));
+        assert!(keeps("doorcam"));
+        assert!(!keeps("aa:bb:cc,192.168.1.5"));
+        assert!(keeps("aa:bb:cc,hikvision"));
+        assert!(keeps("  ,hikvision"));
+        assert_eq!(
+            Filter::new("192.168.1.100-110").hit(&camera()),
+            Some(Hit::new(Column::Ip, 0, 13))
+        );
     }
 
     #[test]

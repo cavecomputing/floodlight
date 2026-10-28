@@ -30,6 +30,7 @@ mode's own options.
 | [`trace`](#trace) | the route to a host, hop by hop, round after round: each router's round trips and the share lost, and where loss starts |
 | [`dns`](#dns) | a name's records from the system's name server or any other, timed, authoritative or not, and its whois |
 | [`lanspeed`](#lanspeed) | the throughput between this machine and another on the LAN, iperf-style, over TCP or UDP |
+| [`wake`](#wake) | a Wake-on-LAN magic packet to wake a sleeping machine by its MAC |
 
 | Shared option | What it does |
 |---|---|
@@ -77,13 +78,15 @@ plugged in and all you have is the MAC on its label.
 floodlight sweep                    # the subnet this machine is on
 floodlight sweep 192.168.1.0/24     # a subnet, or an address for its /24
 floodlight sweep --plain            # print the table and exit
-floodlight sweep --find 3d:57       # print only the matching rows
+floodlight sweep --filter 2c:a5:9c,192.168.1.10-20   # open with only the matching rows
 floodlight sweep --report lan.pdf   # write it as a PDF report (see --report)
 ```
 
-On screen: type to filter (an address fragment, a MAC with or without separators, a maker, a
-name), ↑↓ to move, **enter** copies the address, **tab** copies the MAC, **^r** sweeps again,
-**esc** clears, **^c** quits. The colours are your terminal's own.
+On screen: type to filter (an address fragment, a whole address, a range like `192.168.1.10-20`
+or a subnet like `192.168.1.0/28`, a MAC or its first bytes with or without separators, a maker,
+a name; separate several with commas to see the rows matching any of them), ↑↓ to move,
+**enter** copies the address, **tab** copies the MAC, **^r** sweeps again, **esc** clears, **^c**
+quits. The colours are your terminal's own.
 
 Needs no root: hosts are found with the system `ping` and the OS's ARP table, names with mDNS and
 reverse DNS, makers from the IEEE registry built into the binary. Linux, macOS and Windows.
@@ -301,6 +304,23 @@ protocol. UDP at `--bitrate 0` sends as fast as the machine can, which floods mo
 up as loss; a rate just under what TCP reached is the useful test. The server's port has to be
 open on its firewall, TCP and UDP both.
 
+## wake
+
+Wakes a sleeping machine by sending a Wake-on-LAN magic packet to its MAC address, then prints a
+line and exits. The machine's network card has to have Wake-on-LAN turned on (in its BIOS or
+driver settings). Nothing answers a wake packet, so the line says it was sent, not that the
+machine woke; a `ping` a minute later says that.
+
+```bash
+floodlight wake aa:bb:cc:dd:ee:ff                 # broadcast to every machine on this network
+floodlight wake AA-BB-CC-DD-EE-FF aabb.ccdd.eeff  # several at once, in any of the usual formats
+floodlight wake aa:bb:cc:dd:ee:ff --broadcast 192.168.1.255   # that subnet's broadcast, when this machine has several networks
+floodlight wake aa:bb:cc:dd:ee:ff --port 7        # another port (9 by default)
+```
+
+The packet is a broadcast, so it stays on the network this machine is on unless a router is set
+to forward it; `--broadcast` can name the far subnet's broadcast address when one is.
+
 ## --report
 
 Add `--report FILE` to `sweep`, `wireless`, `speedtest`, `ping`, `dns` or `lanspeed` to run it, write it to `FILE` as
@@ -308,7 +328,7 @@ a PDF, and exit. The report is a Letter page or more, laid out to hand to a clie
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
 - The sweep's report: the subnet, how many addresses answered, how many devices have a known
-  maker or a randomized MAC, and every device's address, MAC, maker, name and ping. `--find`
+  maker or a randomized MAC, and every device's address, MAC, maker, name and ping. `--filter`
   narrows the table the same way it narrows `--plain`.
 - The survey's report scans for 10 seconds first (`--scan-for SECONDS` changes that) and keeps
   every network heard in any scan, since weak ones often answer only the second or third time. It

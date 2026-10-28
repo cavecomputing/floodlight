@@ -1,12 +1,12 @@
-//! The tables printed to stdout for `--plain` and `--find`: the same sweep, survey, speed test,
-//! pings or trace, no screen, so it works in a pipe or a script.
+//! The tables printed to stdout for `--plain`: the same sweep, survey, speed test, pings or
+//! trace, no screen, so it works in a pipe or a script.
 
 use crate::lanspeed::runs::{self as lanspeed_runs, Event as LanEvent, Settings};
 use crate::lanspeed::wire::{Direction, Report};
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
 use crate::ping::trace::{self, Hop, Trace};
-use crate::scan::hosts::{Host, Query, Vendor};
+use crate::scan::hosts::{Filter, Host, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep;
 use crate::speedtest::runs::{self, Run};
@@ -17,13 +17,13 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-pub fn run(runtime: &Runtime, subnet: Subnet, find: Option<&str>) -> anyhow::Result<()> {
+pub fn run(runtime: &Runtime, subnet: Subnet, filter: &str) -> anyhow::Result<()> {
     let hosts = sweep::finished(runtime, subnet.net);
-    let query = Query::new(find.unwrap_or(""));
+    let filter = Filter::new(filter);
     let shown: Vec<_> = hosts
         .rows
         .values()
-        .filter(|host| host.shows(&query))
+        .filter(|host| filter.keeps(host))
         .collect();
     println!(
         "# {} · {} up · {:.1}s",
@@ -32,7 +32,7 @@ pub fn run(runtime: &Runtime, subnet: Subnet, find: Option<&str>) -> anyhow::Res
         hosts.took.unwrap_or_default().as_secs_f32()
     );
     if shown.is_empty() {
-        let why = if query.is_empty() {
+        let why = if filter.is_empty() {
             "nothing answered"
         } else {
             "nothing matches"

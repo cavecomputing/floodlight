@@ -8,11 +8,13 @@ that filters the rows as you type, so a camera or switch you just plugged in is 
 on its label (or the other way round). `wireless` lists the WiFi networks in earshot and how
 their channels overlap. `speedtest` measures the internet connection's download, upload, latency
 and jitter against Cloudflare. `ping` pings up to five hosts (the gateway by default) over and over,
-graphing every round trip and counting the ones lost. `trace` traces the route to a host hop by hop, round after round, each hop's
-round trips and losses, so where loss starts shows. `dns` looks a name up like dig, from the
+graphing every round trip and counting the ones lost. `trace` traces the route to a host hop by
+hop, round after round, each hop's round trips and losses, so where loss starts shows. `dns`
+looks a name up like dig, from the
 system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
 registered it. `lanspeed` measures the throughput between two machines on the LAN, iperf-style:
-`--serve` on one, `--connect` from the other, over TCP or UDP. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+`--serve` on one, `--connect` from the other, over TCP or UDP. `wake` sends a Wake-on-LAN packet
+to a MAC. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -126,7 +128,9 @@ cargo run -- ping --help               # one mode's own options
 cargo run -- sweep                     # sweep the subnet this machine is on
 cargo run -- sweep 192.168.1.0/24      # sweep that subnet (everything after -- goes to the app)
 cargo run -- sweep --plain             # print the table and exit (for pipes, scripts, a quick look)
-cargo run -- sweep --find 3d:57        # print only the rows matching an ip, mac, maker or name fragment
+cargo run -- sweep --filter 3d:57,192.168.1.10-20    # open with that typed at the prompt: rows matching any
+                                                    # address, range, subnet, or mac, maker or name fragment
+cargo run -- sweep --filter 3d:57 --plain           # print only the matching rows
 cargo run -- wireless                  # the WiFi networks heard here and how their channels overlap
 cargo run -- wireless --plain          # the same as a table on stdout
 cargo run -- speedtest                 # download, upload, latency and jitter against Cloudflare
@@ -138,6 +142,7 @@ cargo run -- dns example.com --type a,mx --server 1.1.1.1    # records, timed, a
 cargo run -- dns example.com --whois --report out.pdf        # with who registered it, as a PDF
 cargo run -- lanspeed --serve                                # wait for a client on port 5201, tcp and udp
 cargo run -- lanspeed --connect 192.168.1.20 --udp --bitrate 500 --streams 4 --time 30 --plain
+cargo run -- wake aa:bb:cc:dd:ee:ff --broadcast 192.168.1.255    # the magic packet, one line, exit
 cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
 cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
 
@@ -273,6 +278,11 @@ the OS's default drops datagrams at a few hundred Mbps. Everything is std socket
 timed with `Instant`; `--count` and `--wait` repeat runs like `speedtest`. Checked over loopback
 only, so far.
 
+`wake MAC...`: reads every MAC first (through `normalize_mac`, so any format the sweep reads),
+then broadcasts each its magic packet (six `0xff` bytes, the MAC sixteen times) over UDP to
+`--broadcast` (255.255.255.255 unless told) on `--port` (9), prints a line a MAC and exits.
+Nothing answers a wake packet, so the line says it was sent, not that the machine woke.
+
 There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -332,6 +342,7 @@ src/
     servers.rs           which name servers to ask: typed, or the system's (resolv.conf, GetNetworkParams)
     lookup.rs            one question to one server over UDP or TCP, timed; the domain's own server
     whois.rs             whois over port 43: IANA, the registry, the registrar, and the fields worth showing
+  wake.rs                Wake-on-LAN: the magic packet and the broadcast that sends it, no UI
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
@@ -356,7 +367,7 @@ src/
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
-    plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
+    plain.rs             the tables printed to stdout for --plain, and the words in each cell
 ```
 
 One file per concern, named for that concern. When a file passes a few hundred lines, or starts
