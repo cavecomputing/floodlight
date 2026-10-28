@@ -84,18 +84,16 @@ reverse DNS, makers from the IEEE registry built into the binary. Linux, macOS a
 
 ## wireless
 
-Lists every WiFi network this machine can hear, with its channel, width and signal, how many
-neighbours share its channel (they take turns) or overlap it from a nearby one (they talk over
-each other, which is worse), and a strip of its band so the rows stacked together draw the
-overlap. The top line names the quietest channel in each band.
+Lists every WiFi network this machine can hear, with its channel, width and signal, and a strip
+of its band so the rows stacked together draw who overlaps whom. The top line names the quietest channel in each band.
 
 ```
   # 8 networks · quietest 2.4 GHz 11 · 5 GHz 44
 
-  # ssid          ch   band     width    signal   trend          neighbours          air
-    Home · joined 6    2.4 GHz  —        -59 dBm  +2 · peak -57  1 same · 1 overlap  ···──●──·····
-    Neighbour     6    2.4 GHz  —        -80 dBm  ±0 · peak -78  1 same · 1 overlap  ···──●──·····
-    Cafe Guest    8    2.4 GHz  —        -73 dBm  new            3 overlap           ·····──●──···
+  # ssid          ch   band     width    signal   trend          air
+    Home · joined 6    2.4 GHz  —        -59 dBm  +2 · peak -57  ···──●──·····
+    Neighbour     6    2.4 GHz  —        -80 dBm  ±0 · peak -78  ···──●──·····
+    Cafe Guest    8    2.4 GHz  —        -73 dBm  new            ·····──●──···
 ```
 
 ```bash

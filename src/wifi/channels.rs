@@ -125,23 +125,6 @@ pub struct Crowd {
     pub overlapping: usize,
 }
 
-impl Crowd {
-    /// `clear`, `2 same`, `1 same · 3 overlap`.
-    pub fn words(&self) -> String {
-        let mut words = Vec::new();
-        if self.same > 0 {
-            words.push(format!("{} same", self.same));
-        }
-        if self.overlapping > 0 {
-            words.push(format!("{} overlap", self.overlapping));
-        }
-        if words.is_empty() {
-            return "clear".to_string();
-        }
-        words.join(" · ")
-    }
-}
-
 /// The crowd around each network, in the same order.
 pub fn crowds(networks: &[Network]) -> Vec<Crowd> {
     networks
@@ -290,8 +273,7 @@ mod tests {
                 overlapping: 1
             }
         );
-        assert_eq!(crowds[0].words(), "1 same · 1 overlap");
-        assert_eq!(crowds[3].words(), "clear");
+        assert_eq!(crowds[3], Crowd::default());
         assert_eq!(crowds[4].overlapping, 1);
     }
 

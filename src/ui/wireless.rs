@@ -6,7 +6,7 @@
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{INSET, inset};
-use crate::wifi::channels::{self, Band, Crowd};
+use crate::wifi::channels::{self, Band};
 use crate::wifi::survey::{self, Network};
 use crate::wifi::trend::{self, Reading, Sort, Trend};
 use ratatui::crossterm::event::{
@@ -148,14 +148,6 @@ impl Screen<'_> {
         }
     }
 
-    /// The networks in the last scan.
-    fn heard(&self) -> &[Network] {
-        match &self.heard {
-            Some((Ok(networks), _)) => networks,
-            _ => &[],
-        }
-    }
-
     /// The band's row among the rows.
     fn index(&self, rows: &[(Network, Reading)]) -> usize {
         rows.iter()
@@ -257,33 +249,15 @@ impl Screen<'_> {
     fn draw_table(&mut self, frame: &mut Frame, area: Rect, roles: &Roles) {
         let networks = self.rows();
         let index = self.index(&networks);
-        // Neighbours count only what the last scan heard, not what has gone out of range.
-        let heard = self.heard();
-        let crowds: HashMap<String, Crowd> = heard
-            .iter()
-            .map(trend::key)
-            .zip(channels::crowds(heard))
-            .collect();
         let rows: Vec<Row<'static>> = networks
             .iter()
             .enumerate()
-            .map(|(i, (network, reading))| {
-                let crowd = crowds.get(&trend::key(network)).copied();
-                row(network, crowd, *reading, i == index, roles)
-            })
+            .map(|(i, (network, reading))| row(network, *reading, i == index, roles))
             .collect();
         let empty = rows.is_empty();
 
         let titles = [
-            "ssid",
-            "ch",
-            "band",
-            "width",
-            "signal",
-            "trend",
-            "neighbours",
-            "air",
-            "bssid",
+            "ssid", "ch", "band", "width", "signal", "trend", "air", "bssid",
         ];
         let widths = [
             Constraint::Fill(1),
@@ -292,13 +266,12 @@ impl Screen<'_> {
             Constraint::Length(7),
             Constraint::Length(7),
             Constraint::Length(15),
-            Constraint::Length(18),
             Constraint::Length(30),
             Constraint::Length(17),
         ];
         // The bssid goes first when the window is narrow, so the names keep room to be read:
-        // with it, 131 columns left seven for the ssid.
-        let shown = if area.width < 150 { 8 } else { 9 };
+        // with it, 111 columns left seven for the ssid.
+        let shown = if area.width < 130 { 7 } else { 8 };
         let header = Row::new(titles.map(|title| Cell::from(Span::styled(title, roles.comment()))));
         let table = Table::new(rows, &widths[..shown])
             .header(header)
@@ -329,13 +302,7 @@ impl Screen<'_> {
 
 /// One network's row. Its trend cell follows the signal: the dBm gained or lost since the scan
 /// before, and the peak so far.
-fn row(
-    network: &Network,
-    crowd: Option<Crowd>,
-    reading: Reading,
-    active: bool,
-    roles: &Roles,
-) -> Row<'static> {
+fn row(network: &Network, reading: Reading, active: bool, roles: &Roles) -> Row<'static> {
     let gone = !reading.heard;
     let mut ssid = vec![match &network.ssid {
         Some(name) if gone => Span::styled(name.clone(), roles.comment()),
@@ -347,12 +314,6 @@ fn row(
     if network.connected {
         ssid.push(Span::styled(" · joined", roles.good()));
     }
-    let neighbours = match crowd {
-        Some(crowd) if crowd.overlapping > 0 => Span::styled(crowd.words(), roles.warning()),
-        Some(crowd) if crowd.same > 0 => Span::styled(crowd.words(), roles.muted()),
-        Some(crowd) => Span::styled(crowd.words(), roles.good()),
-        None => Span::styled("—", roles.comment()),
-    };
     let width = width(network);
     let width_style = if network.width_mhz.is_some() {
         roles.muted()
@@ -398,7 +359,6 @@ fn row(
             if gone { roles.comment() } else { roles.muted() },
         )),
         Cell::from(Line::from(trend)),
-        Cell::from(neighbours),
         Cell::from(Span::styled(
             channels::strip(network.freq_mhz, network.width_mhz, network.centre_mhz),
             roles.muted(),

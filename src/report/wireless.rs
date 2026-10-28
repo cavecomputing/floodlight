@@ -12,7 +12,7 @@ use std::path::Path;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-const COLUMNS: [Column; 7] = [
+const COLUMNS: [Column; 6] = [
     Column {
         label: "network",
         width: 0.27,
@@ -44,14 +44,8 @@ const COLUMNS: [Column; 7] = [
         right: true,
     },
     Column {
-        label: "neighbours",
-        width: 0.18,
-        mono: false,
-        right: false,
-    },
-    Column {
         label: "bssid",
-        width: 0.19,
+        width: 0.37,
         mono: true,
         right: false,
     },
@@ -117,17 +111,14 @@ pub fn document(networks: &[Network]) -> Vec<u8> {
     }
 
     sheet.heading("Networks", 36.0);
-    let crowds = channels::crowds(networks);
     let rows: Vec<Vec<Cell>> = networks
         .iter()
-        .zip(crowds)
-        .map(|(network, crowd)| {
-            let words = plain::network_words(network, crowd);
+        .map(|network| {
+            let words = plain::network_words(network);
             let ink = |i: usize| match i {
                 0 if network.connected => AQUA,
                 0 => FG,
-                5 if crowd.same + crowd.overlapping == 0 => AQUA,
-                6 => COOL,
+                5 => COOL,
                 _ => MUTED,
             };
             words

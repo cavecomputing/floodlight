@@ -9,7 +9,7 @@ use crate::scan::subnet::Subnet;
 use crate::scan::sweep;
 use crate::speedtest::runs::{self, Run};
 use crate::ui::wireless;
-use crate::wifi::channels::{self, Band, Crowd};
+use crate::wifi::channels::{self, Band};
 use crate::wifi::survey::{self, Network};
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -84,22 +84,21 @@ pub fn wireless(runtime: &Runtime) -> anyhow::Result<()> {
         return Ok(());
     }
     println!(
-        "{:<24}  {:>3}  {:<7}  {:<7}  {:<7}  {:<18}  {:<30}  bssid",
-        "ssid", "ch", "band", "width", "signal", "neighbours", "air"
+        "{:<24}  {:>3}  {:<7}  {:<7}  {:<7}  {:<30}  bssid",
+        "ssid", "ch", "band", "width", "signal", "air"
     );
-    for (network, crowd) in networks.iter().zip(channels::crowds(&networks)) {
-        let [ssid, channel, band, width, signal, neighbours, bssid] = network_words(network, crowd);
+    for network in &networks {
+        let [ssid, channel, band, width, signal, bssid] = network_words(network);
         let air = channels::strip(network.freq_mhz, network.width_mhz, network.centre_mhz);
         println!(
-            "{ssid:<24}  {channel:>3}  {band:<7}  {width:<7}  {signal:<7}  {neighbours:<18}  {air:<30}  {bssid}"
+            "{ssid:<24}  {channel:>3}  {band:<7}  {width:<7}  {signal:<7}  {air:<30}  {bssid}"
         );
     }
     Ok(())
 }
 
-/// A network's name, channel, band, width, signal, neighbours and BSSID as the printed tables
-/// write them.
-pub fn network_words(network: &Network, crowd: Crowd) -> [String; 7] {
+/// A network's name, channel, band, width, signal and BSSID as the printed tables write them.
+pub fn network_words(network: &Network) -> [String; 6] {
     let mut ssid = network.ssid.clone().unwrap_or_else(|| "hidden".to_string());
     if network.connected {
         ssid.push_str(" · joined");
@@ -110,7 +109,6 @@ pub fn network_words(network: &Network, crowd: Crowd) -> [String; 7] {
         Band::of(network.freq_mhz).name().to_string(),
         wireless::width(network),
         format!("{} dBm", network.signal_dbm),
-        crowd.words(),
         network.bssid.clone().unwrap_or_else(|| "—".to_string()),
     ]
 }
