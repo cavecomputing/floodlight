@@ -1,5 +1,5 @@
-//! The lookup as a report: the name and how the first answer went up top, a sentence on what it
-//! means, then a table of records for each lookup, and the whois fields.
+//! The lookup as a report: the name and how the first answer went up top, then a table of records
+//! for each lookup under whether it was authoritative, and the whois fields.
 
 use super::sheet::{self, COOL, Cell, Column, FG, MUTED, Sheet};
 use crate::dns::lookup::Lookup;
@@ -38,7 +38,6 @@ pub fn document(lookups: &[Lookup], whois: Option<&Result<Whois, String>>) -> Ve
         .map(|lookup| lookup.kind.to_string())
         .collect();
     kinds.dedup();
-    let (verdict, _) = dns::verdict(first);
     let facts = [
         ("date", date),
         ("time", time),
@@ -51,20 +50,11 @@ pub fn document(lookups: &[Lookup], whois: Option<&Result<Whois, String>>) -> Ve
     ];
     let subtitle = format!("from {}", first.server.label());
     sheet.masthead("DNS lookup", name, &subtitle, &facts);
-    sheet.summary(&format!(
-        "Asked {} for {name}'s {} records over {}: the answer took {:.1} ms, {}. {}",
-        first.server.label(),
-        first.kind,
-        if first.tcp { "TCP" } else { "UDP" },
-        first.took.as_secs_f32() * 1000.0,
-        verdict.replace(" · ", ", "),
-        summary(lookups)
-    ));
 
     for lookup in lookups {
-        let title = format!("{} from {}", lookup.kind, lookup.server.label());
-        sheet.heading(&title, 36.0);
         let (verdict, _) = dns::verdict(lookup);
+        let title = format!("{} from {} · {verdict}", lookup.kind, lookup.server.label());
+        sheet.heading(&title, 36.0);
         let (answers, authorities) = match &lookup.reply {
             Ok(reply) => (&reply.answers[..], &reply.authorities[..]),
             Err(_) => (&[][..], &[][..]),
@@ -127,20 +117,4 @@ pub fn document(lookups: &[Lookup], whois: Option<&Result<Whois, String>>) -> Ve
         None => {}
     }
     sheet.finish()
-}
-
-/// What an authoritative answer means, or what a non-authoritative one does.
-fn summary(lookups: &[Lookup]) -> String {
-    let authoritative = lookups
-        .iter()
-        .any(|lookup| matches!(&lookup.reply, Ok(reply) if reply.metadata.authoritative));
-    match authoritative {
-        true => "An authoritative answer comes from a name server that holds the domain's own \
-                 records, so it is what the domain says right now."
-            .to_string(),
-        false => "A non-authoritative answer comes from a resolver that asked the domain's own \
-                  name servers, or answered from what it remembered: a change made in the last \
-                  ttl may not show yet."
-            .to_string(),
-    }
 }

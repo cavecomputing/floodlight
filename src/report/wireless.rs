@@ -1,5 +1,5 @@
-//! The WiFi survey as a report: the network this machine is on and how crowded its channel is,
-//! the quietest channels, a chart of each band, and a table of every network heard.
+//! The WiFi survey as a report: the network joined and the quietest channels up top, a chart of
+//! each band, and a table of every network heard.
 
 use super::pdf::{self, Font};
 use super::sheet::{self, AQUA, BORDER, COOL, Cell, Column, FG, LEFT, MUTED, SUBTLE, Sheet, WIDTH};
@@ -63,7 +63,6 @@ pub fn document(networks: &[Network]) -> Vec<u8> {
     };
     let title = format!("{} networks heard", networks.len());
     sheet.masthead("Wireless survey", &title, &subtitle, &facts);
-    sheet.summary(&summary(networks, joined, &bands));
 
     for band in bands.iter().filter(|band| heard_on(networks, **band)) {
         let on_band: Vec<&Network> = networks
@@ -97,7 +96,7 @@ pub fn document(networks: &[Network]) -> Vec<u8> {
         })
         .collect();
     if rows.is_empty() {
-        sheet.summary("Nothing heard.");
+        sheet.note("Nothing heard.");
     } else {
         sheet.table(&COLUMNS, &rows);
     }
@@ -112,40 +111,6 @@ fn heard_on(networks: &[Network], band: Band) -> bool {
 
 fn name(network: &Network) -> &str {
     network.ssid.as_deref().unwrap_or("hidden")
-}
-
-/// How crowded the joined network's channel is, and where it would be quieter.
-fn summary(networks: &[Network], joined: Option<usize>, bands: &[Band]) -> String {
-    let quietest: Vec<String> = bands
-        .iter()
-        .map(|band| format!("{} on {}", channels::quietest(networks, *band), band.name()))
-        .collect();
-    let quietest = format!("The quietest channels here are {}.", quietest.join(" and "));
-    let Some(i) = joined else {
-        return format!("{} networks heard. {quietest}", networks.len());
-    };
-    let network = &networks[i];
-    let crowd = channels::crowds(networks)[i];
-    let plural = |n: usize| if n == 1 { "network" } else { "networks" };
-    let crowded = match (crowd.same, crowd.overlapping) {
-        (0, 0) => "has its channel to itself".to_string(),
-        (same, 0) => format!("shares its channel with {same} other {}", plural(same)),
-        (0, over) => format!(
-            "is overlapped by {over} {} on nearby channels",
-            plural(over)
-        ),
-        (same, over) => format!(
-            "shares its channel with {same} other {} and is overlapped by {over} more",
-            plural(same)
-        ),
-    };
-    format!(
-        "{} is on channel {} ({}) and {crowded}. Networks on the same channel take turns to \
-         talk; networks on overlapping channels talk over each other, which is worse. {quietest}",
-        name(network),
-        channels::channel(network.freq_mhz),
-        Band::of(network.freq_mhz).name()
-    )
 }
 
 /// One band drawn as a chart: a lane per network with a bar over the slice of spectrum it fills,
@@ -245,21 +210,6 @@ mod tests {
             signal_dbm,
             connected,
         }
-    }
-
-    #[test]
-    fn says_how_crowded_the_joined_channel_is() {
-        let networks = [
-            network("Home", 2437, -50, true),
-            network("Neighbour", 2437, -70, false),
-            network("Cafe", 2447, -75, false),
-        ];
-        let text = summary(&networks, Some(0), &[Band::Ghz2, Band::Ghz5]);
-        assert!(text.starts_with(
-            "Home is on channel 6 (2.4 GHz) and shares its channel with 1 other network and is \
-             overlapped by 1 more."
-        ));
-        assert!(text.ends_with("The quietest channels here are 1 on 2.4 GHz and 36 on 5 GHz."));
     }
 
     #[test]

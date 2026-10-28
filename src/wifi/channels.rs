@@ -116,39 +116,6 @@ pub fn span(freq_mhz: u32, width_mhz: Option<u32>, centre_mhz: Option<u32>) -> (
     }
 }
 
-/// The networks near one network: on its primary channel (they take turns, so they share
-/// airtime), or on another one that overlaps its slice (they talk over each other, which is
-/// worse).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Crowd {
-    pub same: usize,
-    pub overlapping: usize,
-}
-
-/// The crowd around each network, in the same order.
-pub fn crowds(networks: &[Network]) -> Vec<Crowd> {
-    networks
-        .iter()
-        .enumerate()
-        .map(|(i, network)| {
-            let (low, high) = network.span();
-            let mut crowd = Crowd::default();
-            for (j, other) in networks.iter().enumerate() {
-                let (other_low, other_high) = other.span();
-                if i == j || other_low >= high || other_high <= low {
-                    continue;
-                }
-                if other.freq_mhz == network.freq_mhz {
-                    crowd.same += 1;
-                } else {
-                    crowd.overlapping += 1;
-                }
-            }
-            crowd
-        })
-        .collect()
-}
-
 /// The channel in a band with the least heard on it, every network that covers it weighed by
 /// how loud it is (a network at -90 dBm or below barely counts). The lowest channel wins a tie.
 pub fn quietest(networks: &[Network], band: Band) -> u32 {
@@ -253,28 +220,6 @@ mod tests {
             strip(6275, Some(320), Some(6425)),
             "········●───────··············"
         );
-    }
-
-    #[test]
-    fn crowds_tell_sharing_from_overlapping() {
-        let networks = [
-            network(6, Band::Ghz2, None, -50),
-            network(6, Band::Ghz2, None, -70),
-            network(8, Band::Ghz2, None, -60),
-            network(1, Band::Ghz2, None, -60),
-            network(36, Band::Ghz5, Some(80), -60),
-            network(44, Band::Ghz5, None, -60),
-        ];
-        let crowds = crowds(&networks);
-        assert_eq!(
-            crowds[0],
-            Crowd {
-                same: 1,
-                overlapping: 1
-            }
-        );
-        assert_eq!(crowds[3], Crowd::default());
-        assert_eq!(crowds[4].overlapping, 1);
     }
 
     #[test]

@@ -1,9 +1,8 @@
-//! The LAN speed test as a report: the throughput each way up top, what it means in a few
-//! sentences, a chart a direction (of the intervals for one run, of the runs for several), and a
-//! table of every run.
+//! The LAN speed test as a report: the throughput each way up top, a chart a direction (of the
+//! intervals for one run, of the runs for several), and a table of every run.
 
 use super::sheet::{self, AQUA, COOL, Cell, Column, FG, MUTED, SUBTLE, Sheet};
-use super::speedtest::{chart, range};
+use super::speedtest::chart;
 use crate::lanspeed::runs::{self, Event, Run, Runs, Settings};
 use crate::lanspeed::wire::{Direction, Protocol, Report};
 use crate::ui::plain;
@@ -88,7 +87,6 @@ pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
         facts.push(("runs", apart));
     }
     sheet.masthead("LAN speed", &title, &subtitle, &facts);
-    sheet.summary(&summary(runs, settings, wait));
 
     for direction in &settings.directions {
         let ink = match direction {
@@ -163,81 +161,6 @@ fn titled(direction: Direction) -> &'static str {
     }
 }
 
-/// What the runs measured, in a sentence or three.
-fn summary(runs: &Runs, settings: &Settings, wait: Duration) -> String {
-    let measured: Vec<&Run> = runs
-        .runs
-        .iter()
-        .filter(|run| run.failed.is_none())
-        .collect();
-    let streams = match settings.streams {
-        1 => "one connection".to_string(),
-        n => format!("{n} connections at once"),
-    };
-    let how = match settings.protocol {
-        Protocol::Tcp => format!("over TCP on {streams}"),
-        Protocol::Udp => match settings.mbps {
-            0.0 => format!("over UDP on {streams}, sending as fast as it could"),
-            mbps => format!("over UDP on {streams}, sending at {mbps} Mbps"),
-        },
-    };
-    let each_way = |run: &Run| {
-        let mut parts = Vec::new();
-        if let Some(up) = run.upload_mbps() {
-            parts.push(format!("{up:.1} Mbps sending to it"));
-        }
-        if let Some(down) = run.download_mbps() {
-            parts.push(format!("{down:.1} Mbps receiving from it"));
-        }
-        parts.join(" and ")
-    };
-    let mut text = match measured.as_slice() {
-        [] => format!("No run measured anything against {} {how}.", settings.host),
-        [run] => format!(
-            "The link to {} carried {} {how}, each way for {} seconds.",
-            settings.host,
-            each_way(run),
-            settings.seconds.as_secs_f32()
-        ),
-        _ => {
-            let median = |result: fn(&Run) -> Option<f32>| runs.median(result);
-            let mut parts = Vec::new();
-            if let Some(up) = median(Run::upload_mbps) {
-                parts.push(format!(
-                    "sending went from {} (median {up:.1})",
-                    range(&measured, Run::upload_mbps)
-                ));
-            }
-            if let Some(down) = median(Run::download_mbps) {
-                parts.push(format!(
-                    "receiving from {} (median {down:.1})",
-                    range(&measured, Run::download_mbps)
-                ));
-            }
-            format!(
-                "Over {} runs {} s apart against {} {how}, {}.",
-                measured.len(),
-                wait.as_secs(),
-                settings.host,
-                parts.join(" and ")
-            )
-        }
-    };
-    if settings.protocol == Protocol::Udp
-        && let (Some(loss), Some(jitter)) = (runs.median(Run::loss), runs.median(Run::jitter))
-    {
-        text.push_str(&format!(
-            " {loss:.1}% of the datagrams were lost on the way, and one arrived {jitter:.2} ms \
-             earlier or later than the one before, on average (the jitter)."
-        ));
-    }
-    for run in runs.runs.iter().filter(|run| run.failed.is_some()) {
-        let why = run.failed.as_deref().unwrap_or_default();
-        text.push_str(&format!(" The run at {} failed: {why}.", run.time));
-    }
-    text
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,37 +205,6 @@ mod tests {
             runs.apply(Event::Finished);
         }
         runs
-    }
-
-    #[test]
-    fn sums_up_one_run() {
-        assert_eq!(
-            summary(
-                &measured(&[400.0], false),
-                &settings(Protocol::Tcp),
-                Duration::ZERO
-            ),
-            "The link to 192.168.1.20 carried 400.0 Mbps sending to it and 800.0 Mbps receiving \
-             from it over TCP on one connection, each way for 10 seconds."
-        );
-    }
-
-    #[test]
-    fn sums_up_many_udp_runs_and_the_ones_that_failed() {
-        let mut runs = measured(&[90.0, 95.0, 92.0], true);
-        runs.apply(Event::Started);
-        runs.runs[3].time = "14:03:00".to_string();
-        runs.apply(Event::Failed(
-            "the server is busy with another test".to_string(),
-        ));
-        assert_eq!(
-            summary(&runs, &settings(Protocol::Udp), Duration::from_secs(30)),
-            "Over 3 runs 30 s apart against 192.168.1.20 over UDP on one connection, sending at \
-             100 Mbps, sending went from 90.0 to 95.0 Mbps (median 92.0) and receiving from \
-             180.0 to 190.0 Mbps (median 184.0). 1.0% of the datagrams were lost on the way, \
-             and one arrived 0.25 ms earlier or later than the one before, on average (the \
-             jitter). The run at 14:03:00 failed: the server is busy with another test."
-        );
     }
 
     #[test]

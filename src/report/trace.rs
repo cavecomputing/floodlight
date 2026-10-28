@@ -1,9 +1,8 @@
-//! The trace as a report: how far it got and where the loss starts up top, what that means in a
-//! few sentences, a row a hop, then charts of each hop's share lost and average round trip.
+//! The trace as a report: how far it got and where the loss starts up top, a row a hop, then charts
+//! of each hop's share lost and average round trip.
 
 use super::sheet::{self, ACCENT, COOL, Cell, Column, FG, MUTED, Sheet};
 use super::speedtest::chart;
-use crate::ping::pings::TIMEOUT;
 use crate::ping::target::Target;
 use crate::ping::trace::{self, Trace};
 use crate::ui::plain;
@@ -51,7 +50,6 @@ pub fn document(trace: &Trace, target: &Target, wait: Duration) -> Vec<u8> {
     ];
     let title = plain::trace_verdict(trace);
     sheet.masthead("Trace", &title, &format!("to {}", target.label()), &facts);
-    sheet.summary(&summary(trace, &target.label(), wait));
 
     let rows: Vec<Vec<Cell>> = path
         .iter()
@@ -95,65 +93,6 @@ pub fn document(trace: &Trace, target: &Target, wait: Duration) -> Vec<u8> {
     sheet.finish()
 }
 
-/// What the trace found, in a few sentences.
-fn summary(trace: &Trace, label: &str, wait: Duration) -> String {
-    let rounds = trace.rounds();
-    let plural = if rounds == 1 { "" } else { "s" };
-    let path = trace.path();
-    let mut text = format!(
-        "Sent {rounds} round{plural} of echoes to {label}, {} ms apart, each echo set to run out \
-         at one hop on the way so the router there answers, and given {} s to.",
-        wait.as_millis(),
-        TIMEOUT.as_secs(),
-    );
-    if !trace.reached() {
-        text.push_str(&match path.len() {
-            0 => " Nothing answered: not even the first router.".to_string(),
-            hops => format!(
-                " The host never answered; the last router heard was at hop {hops}. Past it the \
-                 traffic is dropped, or the routers and the host don't answer echoes."
-            ),
-        });
-        return text;
-    }
-    let hops = path.len();
-    text.push_str(&format!(
-        " It got there in {hops} hop{}.",
-        if hops == 1 { "" } else { "s" }
-    ));
-    match (trace.loss_starts(), path.last()) {
-        (Some(at), Some(host)) => text.push_str(&format!(
-            " {:.1}% of the echoes to the host were lost, and the loss starts at hop {at}: every \
-             hop from there on lost some, so the trouble is at that hop or the link into it.",
-            host.pings.loss()
-        )),
-        _ => text.push_str(" None of the echoes to the host were lost."),
-    }
-    // Routers that lose echoes when the hops after them don't.
-    let before_the_loss = |at: usize| trace.loss_starts().is_none_or(|start| at + 1 < start);
-    let slow: Vec<String> = path
-        .iter()
-        .enumerate()
-        .take(hops - 1)
-        .filter(|(at, hop)| hop.pings.lost() > 0 && before_the_loss(*at))
-        .map(|(at, _)| (at + 1).to_string())
-        .collect();
-    if !slow.is_empty() {
-        text.push_str(&format!(
-            " Hop{} {} lost some without the hops after {} losing any: routers answer for \
-             themselves last, when busy, so that isn't traffic lost.",
-            if slow.len() == 1 { "" } else { "s" },
-            match slow.split_last() {
-                Some((last, [])) => last.clone(),
-                Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
-                None => String::new(),
-            },
-            if slow.len() == 1 { "it" } else { "them" },
-        ));
-    }
-    text
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,32 +119,6 @@ mod tests {
         }
         trace.add(Event::Name(trace.ip, "router.example".to_string()));
         trace
-    }
-
-    #[test]
-    fn says_where_the_loss_starts_and_which_routers_are_only_slow() {
-        let wait = Duration::from_millis(1000);
-        let trace = traced(&[
-            &[true, false],
-            &[true, true],
-            &[true, false],
-            &[false, true],
-        ]);
-        assert_eq!(
-            summary(&trace, "192.168.1.20", wait),
-            "Sent 2 rounds of echoes to 192.168.1.20, 1000 ms apart, each echo set to run out at \
-             one hop on the way so the router there answers, and given 2 s to. It got there in 4 \
-             hops. 50.0% of the echoes to the host were lost, and the loss starts at hop 3: every \
-             hop from there on lost some, so the trouble is at that hop or the link into it. Hop \
-             1 lost some without the hops after it losing any: routers answer for themselves \
-             last, when busy, so that isn't traffic lost."
-        );
-        let trace = traced(&[&[true, false], &[false, true], &[true, true]]);
-        assert!(summary(&trace, "192.168.1.20", wait).ends_with(
-            "hops. None of the echoes to the host were lost. Hops 1 and 2 lost some without \
-             the hops after them losing any: routers answer for themselves last, when busy, so \
-             that isn't traffic lost."
-        ));
     }
 
     #[test]

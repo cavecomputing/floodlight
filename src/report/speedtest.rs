@@ -1,5 +1,5 @@
-//! The speed test as a report: download and upload up top, what they mean in a few sentences,
-//! a chart of each result across the runs when there are several, and a table of every run.
+//! The speed test as a report: download and upload up top, a chart of each result across the runs
+//! when there are several, and a table of every run.
 
 use super::pdf::{self, Font};
 use super::sheet::{
@@ -69,7 +69,6 @@ pub fn document(runs: &Runs, wait: Duration) -> Vec<u8> {
         facts.push(("runs", apart));
     }
     sheet.masthead("Speed test", &title, &subtitle, &facts);
-    sheet.summary(&summary(runs, wait));
 
     let rows: Vec<Vec<Cell>> = runs
         .runs
@@ -224,61 +223,6 @@ fn faded((r, g, b): pdf::Rgb) -> pdf::Rgb {
     (fade(r), fade(g), fade(b))
 }
 
-/// What the runs measured, in a sentence or three.
-fn summary(runs: &Runs, wait: Duration) -> String {
-    let place = match runs.server() {
-        Some(server) => match &server.city {
-            Some(city) => format!("Cloudflare's data center in {city} ({})", server.colo),
-            None => format!("Cloudflare's data center {}", server.colo),
-        },
-        None => "Cloudflare".to_string(),
-    };
-    let measured: Vec<&Run> = runs
-        .runs
-        .iter()
-        .filter(|run| run.failed.is_none())
-        .collect();
-    let median = |result: fn(&Run) -> Option<f32>| runs.median(result).unwrap_or_default();
-    let mut text = match measured.as_slice() {
-        [] => "No run measured anything.".to_string(),
-        [run] => format!(
-            "Downloads reached {:.1} Mbps and uploads {:.1} Mbps against {place}. A request took \
-             {:.1} ms to come back, give or take {:.1} ms from one to the next (the jitter).",
-            run.download().unwrap_or_default(),
-            run.upload().unwrap_or_default(),
-            run.latency().unwrap_or_default(),
-            run.jitter().unwrap_or_default(),
-        ),
-        _ => format!(
-            "Over {} runs {} s apart against {place}, downloads went from {} (median {:.1}) and \
-             uploads from {} (median {:.1}). The median request took {:.1} ms to come back, give \
-             or take {:.1} ms from one to the next (the jitter).",
-            measured.len(),
-            wait.as_secs(),
-            range(&measured, Run::download),
-            median(Run::download),
-            range(&measured, Run::upload),
-            median(Run::upload),
-            median(Run::latency),
-            median(Run::jitter),
-        ),
-    };
-    for run in runs.runs.iter().filter(|run| run.failed.is_some()) {
-        let why = run.failed.as_deref().unwrap_or_default();
-        text.push_str(&format!(" The run at {} failed: {why}.", run.time));
-    }
-    text
-}
-
-/// `210.4 to 250.3 Mbps`: the slowest and fastest of one result across the runs. The LAN speed
-/// report says its ranges the same way.
-pub(super) fn range<R>(runs: &[&R], result: fn(&R) -> Option<f32>) -> String {
-    let values: Vec<f32> = runs.iter().filter_map(|run| result(run)).collect();
-    let slowest = values.iter().copied().fold(f32::MAX, f32::min);
-    let fastest = values.iter().copied().fold(0.0, f32::max);
-    format!("{slowest:.1} to {fastest:.1} Mbps")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,32 +247,6 @@ mod tests {
             runs.apply(Event::Finished);
         }
         runs
-    }
-
-    #[test]
-    fn sums_up_one_run() {
-        assert_eq!(
-            summary(&measured(&[240.0]), Duration::from_secs(5)),
-            "Downloads reached 240.0 Mbps and uploads 24.0 Mbps against Cloudflare's data center \
-             in Los Angeles (LAX). A request took 11.0 ms to come back, give or take 1.5 ms from \
-             one to the next (the jitter)."
-        );
-    }
-
-    #[test]
-    fn sums_up_many_runs_and_the_ones_that_failed() {
-        let mut runs = measured(&[200.0, 250.0, 240.0]);
-        runs.apply(Event::Started);
-        runs.runs[3].time = "14:03:00".to_string();
-        runs.apply(Event::Failed("cloudflare answered 429".to_string()));
-        assert_eq!(
-            summary(&runs, Duration::from_secs(30)),
-            "Over 3 runs 30 s apart against Cloudflare's data center in Los Angeles (LAX), \
-             downloads went from 200.0 to 250.0 Mbps (median 240.0) and uploads from 20.0 to \
-             25.0 Mbps (median 24.0). The median request took 11.0 ms to come back, give or take \
-             1.5 ms from one to the next (the jitter). The run at 14:03:00 failed: cloudflare \
-             answered 429."
-        );
     }
 
     #[test]

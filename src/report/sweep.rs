@@ -56,7 +56,6 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &str) -> Vec<u8> {
         &from.join(" · "),
         &facts,
     );
-    sheet.summary(&summary(hosts, subnet, filter));
 
     let kept = Filter::new(filter);
     let rows: Vec<Vec<Cell>> = hosts
@@ -78,7 +77,7 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &str) -> Vec<u8> {
         .collect();
     sheet.heading("Devices", 36.0);
     if rows.is_empty() {
-        sheet.summary(if !kept.is_empty() {
+        sheet.note(if !kept.is_empty() {
             "Nothing matches."
         } else {
             "Nothing answered."
@@ -87,62 +86,6 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &str) -> Vec<u8> {
         sheet.table(&COLUMNS, &rows);
     }
     sheet.finish()
-}
-
-/// What answered, and what the makers say, in a sentence or three.
-fn summary(hosts: &Hosts, subnet: &Subnet, filter: &str) -> String {
-    let count = |want: fn(&Vendor) -> bool| hosts.rows.values().filter(|h| want(&h.vendor)).count();
-    let known = count(|vendor| matches!(vendor, Vendor::Known(_)));
-    let randomized = count(|vendor| *vendor == Vendor::Randomized);
-    // Only a row with a MAC has a maker to look up; one found by ping alone has none.
-    let unknown = hosts
-        .rows
-        .values()
-        .filter(|h| h.mac.is_some() && h.vendor == Vendor::Unknown)
-        .count();
-    let silent = hosts
-        .rows
-        .values()
-        .filter(|h| h.latency_ms.is_none())
-        .count();
-    let mut text = format!(
-        "{} of the {} addresses on {} answered.",
-        hosts.rows.len(),
-        hosts.total,
-        subnet.net
-    );
-    let mut makers = Vec::new();
-    if known > 0 {
-        makers.push(format!("{known} are named by their maker"));
-    }
-    if randomized > 0 {
-        makers.push(format!(
-            "{randomized} use a randomized MAC (usually a phone or laptop keeping its real one private)"
-        ));
-    }
-    if unknown > 0 {
-        makers.push(format!("{unknown} have a maker the registry doesn't list"));
-    }
-    match makers.as_slice() {
-        [] => {}
-        [only] => text.push_str(&format!(" Of those, {only}.")),
-        [first @ .., last] => {
-            text.push_str(&format!(" Of those, {}, and {last}.", first.join(", ")))
-        }
-    }
-    if silent > 0 {
-        text.push_str(&format!(
-            " {silent} ignored the ping but turned up in this machine's address table."
-        ));
-    }
-    let kept = Filter::new(filter);
-    if !kept.is_empty() {
-        let shown = hosts.rows.values().filter(|h| kept.keeps(h)).count();
-        text.push_str(&format!(
-            " The table lists the {shown} that match \"{filter}\"."
-        ));
-    }
-    text
 }
 
 #[cfg(test)]
@@ -181,19 +124,6 @@ mod tests {
             took: Duration::from_secs(4),
         });
         (hosts, subnet)
-    }
-
-    #[test]
-    fn sums_up_what_answered() {
-        let (hosts, subnet) = swept();
-        assert_eq!(
-            summary(&hosts, &subnet, "doorcam"),
-            "80 of the 254 addresses on 192.168.1.0/24 answered. Of those, 26 are named by their \
-             maker, 27 use a randomized MAC (usually a phone or laptop keeping its real one \
-             private), and 27 have a maker the registry doesn't list. 11 ignored the ping but \
-             turned up in this machine's address table. The table lists the 1 that match \
-             \"doorcam\"."
-        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! The report's page, laid out like a printed documentation page: white Letter paper, a running
-//! header and a page count on every page, a title over a strip of facts, the summary,
-//! headings over a thin rule, and tables with a grey header row and striped rows. No name or logo.
+//! header and a page count on every page, a title over a strip of facts, headings over a thin rule,
+//! and tables with a grey header row and striped rows. No name or logo.
 
 use super::pdf::{self, Font, PAGE_HEIGHT, PAGE_WIDTH, Pdf, Rgb};
 
@@ -163,8 +163,8 @@ impl Sheet {
         self.y = strip + height + 14.0;
     }
 
-    /// The few sentences a reader takes away, as a plain paragraph under the facts.
-    pub fn summary(&mut self, text: &str) {
+    /// A line of plain text in place of a table with nothing in it.
+    pub fn note(&mut self, text: &str) {
         let lines = pdf::wrap(Font::Sans, 10.0, text, WIDTH);
         self.room(14.0 * lines.len() as f32);
         for line in lines {

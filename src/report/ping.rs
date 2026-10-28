@@ -1,6 +1,6 @@
-//! The pings as a report: the average and the share lost up top, what they mean in a few
-//! sentences, with several hosts a table of their totals (each name in its line's colour), then
-//! one chart of every host's round trips. Every ping is in the chart, so there is no table of them.
+//! The pings as a report: the average and the share lost up top, with several hosts a table of
+//! their totals (each name in its line's colour), then one chart of every host's round trips. Every
+//! ping is in the chart, so there is no table of them.
 
 use super::pdf::Rgb;
 use super::sheet::{self, ACCENT, AQUA, Cell, Column, FG, MUTED, Sheet};
@@ -80,7 +80,6 @@ pub fn document(pings: &[Pings], targets: &[Target], wait: Duration) -> Vec<u8> 
             sheet.masthead("Ping", &title, &format!("to {}", labels.join(", ")), &facts);
         }
     }
-    sheet.summary(&summary(pings, &labels, wait));
 
     if targets.len() > 1 {
         let rows: Vec<Vec<Cell>> = pings
@@ -132,78 +131,6 @@ pub fn document(pings: &[Pings], targets: &[Target], wait: Duration) -> Vec<u8> 
     sheet.finish()
 }
 
-/// What the pings found, in a sentence or three a host.
-fn summary(pings: &[Pings], labels: &[String], wait: Duration) -> String {
-    let each = pings.first().map_or(0, |pings| pings.pings.len());
-    let plural = if each == 1 { "" } else { "s" };
-    let to = match labels {
-        [label] => label.clone(),
-        _ => format!("each of {} hosts", labels.len()),
-    };
-    let mut text = format!(
-        "Sent {each} ping{plural} to {to}, {} ms apart, each given {} s to come back.",
-        wait.as_millis(),
-        pings::TIMEOUT.as_secs(),
-    );
-    for (pings, label) in pings.iter().zip(labels) {
-        // With several hosts each one's sentences say whose they are.
-        let from = match labels.len() {
-            1 => String::new(),
-            _ => format!("From {label}, "),
-        };
-        text.push_str(&host_summary(pings, &from));
-    }
-    text
-}
-
-/// One host's sentences: how many came back, how fast, and which were lost.
-fn host_summary(pings: &Pings, from: &str) -> String {
-    let sent = pings.pings.len();
-    let lost = pings.lost();
-    if lost == sent {
-        return match from {
-            "" => " None came back: the host didn't answer.".to_string(),
-            _ => format!(" {from}none came back: the host didn't answer."),
-        };
-    }
-    let mut text = String::new();
-    if let (Some(min), Some(average), Some(max)) = (pings.min(), pings.average(), pings.max()) {
-        text.push_str(&format!(
-            " {from}{} came back, in {min:.2} to {max:.2} ms ({average:.2} ms on average)",
-            sent - lost
-        ));
-        match pings.jitter() {
-            Some(jitter) => text.push_str(&format!(
-                ", varying {jitter:.2} ms from one to the next (the jitter)."
-            )),
-            None => text.push('.'),
-        }
-    }
-    let lost_ones: Vec<String> = pings
-        .pings
-        .iter()
-        .filter_map(|ping| {
-            ping.reply
-                .as_ref()
-                .err()
-                .map(|why| format!("{} ({why})", ping.seq))
-        })
-        .collect();
-    match lost_ones.len() {
-        0 => text.push_str(" None was lost."),
-        // A handful are worth naming; past that the chart's gaps show them.
-        count if count <= 10 => text.push_str(&format!(
-            " {count} {} lost ({:.1}%): {} {}.",
-            if count == 1 { "was" } else { "were" },
-            pings.loss(),
-            if count == 1 { "number" } else { "numbers" },
-            lost_ones.join(", ")
-        )),
-        count => text.push_str(&format!(" {count} were lost ({:.1}%).", pings.loss())),
-    }
-    text
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,39 +155,6 @@ mod tests {
             ip: Ipv4Addr::new(192, 168, 1, last),
             name: name.map(str::to_string),
         }
-    }
-
-    #[test]
-    fn sums_up_the_pings_and_names_the_lost() {
-        let wait = Duration::from_millis(500);
-        let gateway = ["gateway (192.168.1.1)".to_string()];
-        assert_eq!(
-            summary(&[pings(&[Some(1.0), None, Some(3.0)])], &gateway, wait),
-            "Sent 3 pings to gateway (192.168.1.1), 500 ms apart, each given 2 s to come back. \
-             2 came back, in 1.00 to 3.00 ms (2.00 ms on average), varying 2.00 ms from one to \
-             the next (the jitter). 1 was lost (33.3%): number 2 (timed out)."
-        );
-        assert_eq!(
-            summary(&[pings(&[None, None])], &gateway, wait),
-            "Sent 2 pings to gateway (192.168.1.1), 500 ms apart, each given 2 s to come back. \
-             None came back: the host didn't answer."
-        );
-    }
-
-    #[test]
-    fn sums_up_each_host() {
-        let labels = ["192.168.1.1".to_string(), "192.168.1.2".to_string()];
-        assert_eq!(
-            summary(
-                &[pings(&[Some(1.0), Some(2.0)]), pings(&[None, None])],
-                &labels,
-                Duration::from_millis(250)
-            ),
-            "Sent 2 pings to each of 2 hosts, 250 ms apart, each given 2 s to come back. From \
-             192.168.1.1, 2 came back, in 1.00 to 2.00 ms (1.50 ms on average), varying 1.00 ms \
-             from one to the next (the jitter). None was lost. From 192.168.1.2, none came back: \
-             the host didn't answer."
-        );
     }
 
     #[test]

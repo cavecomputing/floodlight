@@ -343,31 +343,31 @@ to forward it; `--broadcast` can name the far subnet's broadcast address when on
 
 Add `--report FILE` to `sweep`, `wireless`, `speedtest`, `ping`, `dns` or `lanspeed` to run it, write it to `FILE` as
 a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
-a header with the date and the key numbers, a summary in plain sentences, then the table.
+a header with the date and the key numbers, then the charts and tables.
 
 - The sweep's report: the subnet, how many addresses answered, how many devices have a known
   maker or a randomized MAC, and every device's address, MAC, maker, name and ping. `--filter`
   narrows the table the same way it narrows `--plain`.
 - The survey's report scans for 10 seconds first (`--scan-for SECONDS` changes that) and keeps
   every network heard in any scan, since weak ones often answer only the second or third time. It
-  shows the network this machine is on and how crowded its channel is, the quietest channel in
+  shows the network this machine is on, the quietest channel in
   each band, a chart of each band (a lane per network over the slice of spectrum it fills, the
   quietest channel marked), and every network in a table.
 - The speed test's report runs `--count` times (once unless told) and leads with the median
   download and upload, then the latency, jitter, the Cloudflare data center and the internet
-  provider, a summary of the range across runs, a chart each of download, upload and latency
+  provider, a chart each of download, upload and latency
   across the runs (when there are several) to show the trend, and every run in a table.
 - The ping report pings each host `--count` times (10 unless told; it needs an end, so not 0)
   and leads with the share lost (and for one host the average, minimum, maximum and jitter), a
-  summary that names the pings lost, a table of each host's totals when there are several (each
+  table of each host's totals when there are several (each
   name in its line's colour), and one chart with every host's round trips on it. Every ping is in
   the chart, so there is no table of them.
 - The LAN speed report leads with the throughput each way (the median across runs), the jitter
-  and loss for UDP, a summary of what the link carried, a chart a direction (of each interval for
+  and loss for UDP, a chart a direction (of each interval for
   one run, of each run's total for several), and every run in a table.
-- The DNS report leads with the name, the server and how the answer went, says what an
-  authoritative or non-authoritative answer means, then has a table of records for each lookup and
-  the whois fields when asked for.
+- The DNS report leads with the name, the server and how the answer went, then a table of
+  records for each lookup, headed authoritative or non-authoritative, and the whois fields when
+  asked for.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.

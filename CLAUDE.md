@@ -200,8 +200,8 @@ background, and fills the table as answers come in. Ctrl+R sweeps again.
 written by hand in `report/` (no crate): the built-in Helvetica and Courier, which every reader
 has, so nothing is embedded. It looks like a printed documentation page, not the brand's print
 style: white Letter paper, a running header and page count on every page, the title over a grey
-strip of facts, the summary as a plain paragraph, headings over a thin rule, and tables
-with a grey header row and striped rows. Its few colours live in `report/sheet.rs`.
+strip of facts, headings over a thin rule, and tables with a grey header row and striped rows,
+with no summary sentences. Its few colours live in `report/sheet.rs`.
 **No branding**: no name or logo anywhere on it.
 
 `wireless`: `floodlight wireless` opens a screen of every network heard and keeps asking the
@@ -364,21 +364,21 @@ src/
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
     pdf.rs               the PDF file format: pages, shapes, text in the built-in fonts and their widths
-    sheet.rs             the report's page and colours: running header, title and facts, summary,
+    sheet.rs             the report's page and colours: running header, title and facts,
                          headings, tables, page breaks, footer
-    sweep.rs             the sweep's report: the summary sentences and the table of devices
-    wireless.rs          the survey's report: the summary, a channel chart per band, the networks
-    speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
-    ping.rs              the ping report: the loss, the summary, a row a host, one chart of them all
+    sweep.rs             the sweep's report: the subnet and the table of devices
+    wireless.rs          the survey's report: the quietest channels, a channel chart per band, the networks
+    speedtest.rs         the speed test's report: the medians, a chart a result, a row a run
+    ping.rs              the ping report: the loss, a row a host, one chart of them all
     trace.rs             the trace report: how far and where loss starts, a row a hop, loss and
                          latency charts by hop
-    dns.rs               the lookup's report: the answer, what authoritative means, the records, the whois
+    dns.rs               the lookup's report: the answer, the records under authoritative or not, the whois
     lanspeed.rs          the LAN speed report: the throughput each way, a chart a direction, a row a run
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles, in the terminal's own colours (the
                          printed report keeps its own, in report/sheet.rs)
     app.rs               the sweep's screen: state, key handling, the prompt and the table
-    wireless.rs          the wireless screen: the networks, their trends, crowds and strips
+    wireless.rs          the wireless screen: the networks, their trends and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
     ping.rs              the ping screen: a row a host to pick with the arrows, the picked one's graph under them
     trace.rs             the trace screen: how far and where loss starts, a row a hop
