@@ -49,6 +49,9 @@ pub fn agent() -> Agent {
         .http_status_as_error(false)
         // Our own name rather than the HTTP library's, so Cloudflare sees what is asking.
         .user_agent(format!("{}/{}", brand::BIN, env!("CARGO_PKG_VERSION")))
+        // Keeps a connection for each of the split transfers; the library keeps 3, so one had
+        // to be set up again, inside the timing, every round.
+        .max_idle_connections_per_host(super::runs::STREAMS)
         .build()
         .into()
 }

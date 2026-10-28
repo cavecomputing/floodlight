@@ -32,7 +32,7 @@ const LONG_ENOUGH: Duration = Duration::from_secs(1);
 /// the way fast.com and Ookla measure. The size is split between them, so a run moves what
 /// Cloudflare's page moves: four times that set off its limit (429) after a few runs.
 const STREAMS_FROM: usize = 10_000_000;
-const STREAMS: usize = 4;
+pub const STREAMS: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Phase {
@@ -259,6 +259,7 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
 
     let mut measured = Vec::new();
     let (mut downloads, mut uploads) = (0, 0);
+    let mut connections_open = false;
     for (phase, bytes, times) in SEQUENCE {
         if measured.contains(&phase) {
             continue;
@@ -270,6 +271,12 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
             Phase::Upload => vec![b'0'; bytes / streams],
             _ => Vec::new(),
         };
+        if streams > 1 && !connections_open {
+            // Opens the connections the split transfers share, untimed, so no transfer counts
+            // their setup.
+            transfer(agent, Phase::Download, 0, &[], streams)?;
+            connections_open = true;
+        }
         let mut quickest = Duration::MAX;
         for _ in 0..times {
             let took = match transfer(agent, phase, bytes / streams, &body, streams) {
