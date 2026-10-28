@@ -376,8 +376,8 @@ src/
     calc.rs              the subnet printed to the terminal: a row a value
     lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
-    graph.rs             the graph the speed test, ping and lanspeed screens share: braille lines
-                         joining the points on a round scale, a gap where a value is missing
+    graph.rs             the graph the speed test, ping and lanspeed screens share: a dot a value on
+                         a round scale over a baseline, a gap where a value is missing
     plain.rs             the tables printed to stdout for --plain, and the words in each cell
 ```
 
