@@ -244,9 +244,9 @@ datagram socket (socket2), which Linux allows when `net.ipv4.ping_group_range` c
 (systemd sets it so); Windows uses its own `IcmpSendEcho` (windows-sys). Every round trip is
 timed with `Instant` around the send and the reply, since Windows only reports whole
 milliseconds. Ctrl+R forgets the pings and starts over. The screen leads with a row a host (a dot
-in the host's colour, `Roles::host`), and every host shares one graph in those colours
-(`graph::shared_graph`); tab shows one host alone, since hosts close together land on the same
-spots. The report does the same on paper (`shared_chart`, twice the usual height) and has no
+in the host's colour, `Roles::host`); ↑↓ picks one, and the graph under them shows that host's
+round trips in its colour (one host at a time: overlaid, hosts close together landed on the same
+spots). The report does the same on paper (`shared_chart`, twice the usual height) and has no
 table of every ping.
 
 `trace HOST`: a thread a hop, TTL 1 to 30, each with its own ping socket (`Pinger::set_ttl`),
@@ -380,7 +380,7 @@ src/
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
-    ping.rs              the ping screen: a row a host, then one graph a colour a host filling the rest
+    ping.rs              the ping screen: a row a host to pick with the arrows, the picked one's graph under them
     trace.rs             the trace screen: how far and where loss starts, a row a hop
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     calc.rs              the subnet printed to the terminal: a row a value

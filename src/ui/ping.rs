@@ -1,16 +1,15 @@
 //! The ping screen: a row a host up top with its average and totals, marked with a dot in its
-//! own colour, then one graph filling the rest with every host's round trips on it in those
-//! colours. Same look as the speed test's screen.
+//! own colour, then a graph filling the rest with the round trips of the host picked with the
+//! arrows, in that colour. Same look as the speed test's screen.
 
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
-use crate::ui::graph::shared_graph;
+use crate::ui::graph::graph;
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{self, inset, plain};
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row};
 use ratatui::{DefaultTerminal, Frame};
@@ -19,8 +18,8 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 const HINTS: [&str; 2] = ["^r start over", "^c quit"];
-/// With several hosts, tab picks one to see alone on the graph.
-const HINTS_SEVERAL: [&str; 3] = ["tab one host", "^r start over", "^c quit"];
+/// With several hosts, the arrows pick the one on the graph.
+const HINTS_SEVERAL: [&str; 3] = ["↑↓ pick a host", "^r start over", "^c quit"];
 
 pub fn run(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()> {
     let ips: Vec<Ipv4Addr> = targets.iter().map(|target| target.ip).collect();
@@ -32,7 +31,7 @@ pub fn run(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()>
         done: false,
         headline: plain::ping_headline(targets, count, wait),
         targets: targets.to_vec(),
-        focus: None,
+        selected: 0,
         count,
         opened: Instant::now(),
     };
@@ -50,8 +49,8 @@ struct Screen {
     done: bool,
     headline: String,
     targets: Vec<Target>,
-    /// The one host shown alone on the graph (tab), or None for all of them.
-    focus: Option<usize>,
+    /// The host whose round trips the graph shows, picked with the arrows.
+    selected: usize,
     count: u32,
     opened: Instant,
 }
@@ -78,13 +77,9 @@ impl Screen {
                     (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
                         return Ok(());
                     }
-                    // All the hosts, then each alone, then all again.
-                    (KeyCode::Tab, _) if self.targets.len() > 1 => {
-                        self.focus = match self.focus {
-                            None => Some(0),
-                            Some(i) if i + 1 < self.targets.len() => Some(i + 1),
-                            Some(_) => None,
-                        };
+                    (KeyCode::Up, _) => self.selected = self.selected.saturating_sub(1),
+                    (KeyCode::Down, _) if self.selected + 1 < self.targets.len() => {
+                        self.selected += 1;
                     }
                     // Forget them and start over; dropping the old receiver stops its pings.
                     (KeyCode::Char('r'), true) => {
@@ -104,7 +99,7 @@ impl Screen {
         let roles = &TERMINAL;
         let hosts = self.targets.len() as u16;
         // The graph takes every row the hosts leave, so it is as tall as the window allows.
-        let [_, head, _, rundown, graph, rule, bar] = Layout::vertical([
+        let [_, head, _, rundown, graph_area, rule, bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -124,30 +119,27 @@ impl Screen {
         );
         self.draw_rundown(frame, rundown, roles);
 
-        let round_trips: Vec<Vec<Option<f32>>> = self
+        let i = self.selected;
+        let round_trips: Vec<Option<f32>> = self.pings[i]
             .pings
             .iter()
-            .map(|pings| {
-                let replies = pings.pings.iter();
-                replies
-                    .map(|ping| ping.reply.as_ref().ok().copied())
-                    .collect()
-            })
+            .map(|ping| ping.reply.as_ref().ok().copied())
             .collect();
-        let series: Vec<(&[Option<f32>], Style)> = round_trips
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| self.focus.is_none_or(|focus| focus == *i))
-            .map(|(i, values)| (values.as_slice(), roles.host(i)))
-            .collect();
-        let title = match self.focus {
-            Some(i) => format!(
+        let title = match self.targets.len() {
+            1 => "latency · ms · a gap is a ping lost".to_string(),
+            _ => format!(
                 "{} · latency · ms · a gap is a ping lost",
                 self.targets[i].label()
             ),
-            None => "latency · ms · a gap is a ping lost".to_string(),
         };
-        shared_graph(frame, inset(graph), &title, &series, roles);
+        graph(
+            frame,
+            inset(graph_area),
+            &title,
+            &round_trips,
+            roles.host(i),
+            roles,
+        );
         let hints: &[&str] = if self.targets.len() > 1 {
             &HINTS_SEVERAL
         } else {
@@ -206,8 +198,8 @@ impl Screen {
                     Cell::from(Span::styled(pings.pings.len().to_string(), roles.muted())),
                     Cell::from(lost),
                 ]);
-                // The host on the graph alone sits on the band, like the active row elsewhere.
-                match self.focus == Some(i) {
+                // The host on the graph sits on the band, like the active row elsewhere.
+                match self.targets.len() > 1 && self.selected == i {
                     true => row.style(roles.band()),
                     false => row,
                 }

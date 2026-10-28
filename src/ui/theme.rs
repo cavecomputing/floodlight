@@ -113,8 +113,8 @@ impl Roles {
         Style::new().fg(self.accent_warm)
     }
 
-    /// Host `i`'s colour where several share a graph (the ping screen): aqua, blue, yellow,
-    /// green, then the plain colour. Never warm, which means something went wrong.
+    /// Host `i`'s colour on the ping screen, its dot and its graph: aqua, blue, yellow, green,
+    /// then the plain colour. Never warm, which means something went wrong.
     pub fn host(&self, i: usize) -> Style {
         let colours = [
             self.accent_aqua,

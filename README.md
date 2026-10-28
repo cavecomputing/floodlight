@@ -165,10 +165,9 @@ hundred megabytes on a fast line.
 
 Pings up to five hosts side by side, over and over. Up top is a row a host, marked with a dot in
 its own colour: the average round trip, the minimum, maximum and jitter (how much one differs from
-the next), how many were sent and how many lost. Under it one graph, as tall as the window allows, plots every
-host's round trips in its colour, a gap where one was lost, so a link that drops out or slows down shows
-at a glance. Hosts whose round trips are close land on the same spots, so **tab** shows one host
-alone on the graph, then the next, then all of them again. With no host it pings this machine's
+the next), how many were sent and how many lost. Under it a graph, as tall as the window allows, plots the round trips of
+the host picked with **↑↓** (the row on the band) in its colour, a gap where one was lost, so a
+link that drops out or slows down shows at a glance. With no host it pings this machine's
 gateway (its router).
 
 ```
