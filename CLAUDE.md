@@ -199,7 +199,7 @@ background, and fills the table as answers come in. Ctrl+R sweeps again.
 written by hand in `report/` (no crate): the built-in Helvetica and Courier, which every reader
 has, so nothing is embedded. It looks like a printed documentation page, not the brand's print
 style: white Letter paper, a running header and page count on every page, the title over a grey
-strip of facts, the summary as a note with a slate-blue edge, headings over a thin rule, and tables
+strip of facts, the summary as a plain paragraph, headings over a thin rule, and tables
 with a grey header row and striped rows. Its few colours live in `report/sheet.rs`.
 **No branding**: no name or logo anywhere on it.
 
@@ -360,7 +360,7 @@ src/
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
     pdf.rs               the PDF file format: pages, shapes, text in the built-in fonts and their widths
-    sheet.rs             the report's page and colours: running header, title and facts, summary note,
+    sheet.rs             the report's page and colours: running header, title and facts, summary,
                          headings, tables, page breaks, footer
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks

@@ -1,5 +1,5 @@
 //! The report's page, laid out like a printed documentation page: white Letter paper, a running
-//! header and a page count on every page, a title over a strip of facts, the summary as a note,
+//! header and a page count on every page, a title over a strip of facts, the summary,
 //! headings over a thin rule, and tables with a grey header row and striped rows. No name or logo.
 
 use super::pdf::{self, Font, PAGE_HEIGHT, PAGE_WIDTH, Pdf, Rgb};
@@ -16,9 +16,7 @@ const SURFACE: Rgb = (0xf6, 0xf8, 0xfa);
 const RAISED: Rgb = (0xf0, 0xf3, 0xf6);
 /// Every other row of a table.
 const STRIPE: Rgb = (0xf8, 0xf9, 0xfb);
-/// The summary's note.
-const NOTE: Rgb = (0xee, 0xf4, 0xfa);
-/// The one accent: the note's edge and the charts' lines.
+/// The one accent: the charts' lines.
 pub const ACCENT: Rgb = (0x2b, 0x5b, 0x84);
 /// Addresses.
 pub const COOL: Rgb = ACCENT;
@@ -165,21 +163,16 @@ impl Sheet {
         self.y = strip + height + 14.0;
     }
 
-    /// The few sentences a reader takes away, as a note with a blue left edge.
+    /// The few sentences a reader takes away, as a plain paragraph under the facts.
     pub fn summary(&mut self, text: &str) {
-        let lines = pdf::wrap(Font::Sans, 9.5, text, WIDTH - 26.0);
-        let height = 30.0 + 13.5 * lines.len() as f32;
-        self.room(height);
-        let (x, y) = (LEFT, self.y);
-        let pdf = &mut self.pdf;
-        pdf.rect(x, y, WIDTH, height, NOTE);
-        pdf.rect(x, y, 3.0, height, ACCENT);
-        pdf.text(x + 13.0, y + 15.0, Font::SansBold, 9.0, ACCENT, "Summary");
-        for (i, line) in lines.iter().enumerate() {
-            let baseline = y + 29.0 + 13.5 * i as f32;
-            pdf.text(x + 13.0, baseline, Font::Sans, 9.5, FG, line);
+        let lines = pdf::wrap(Font::Sans, 10.0, text, WIDTH);
+        self.room(14.0 * lines.len() as f32);
+        for line in lines {
+            self.pdf
+                .text(LEFT, self.y + 10.0, Font::Sans, 10.0, FG, &line);
+            self.y += 14.0;
         }
-        self.y += height + 4.0;
+        self.y += 4.0;
     }
 
     /// A section heading over a thin rule, kept on the page with at least `then` points of what
