@@ -125,7 +125,8 @@ cargo run -- ping --help               # one mode's own options
 cargo run -- sweep                     # sweep the subnet this machine is on
 cargo run -- sweep 192.168.1.0/24      # sweep that subnet (everything after -- goes to the app)
 cargo run -- sweep --plain             # print the table and exit (for pipes, scripts, a quick look)
-cargo run -- sweep --find 3d:57        # print only the rows matching an ip, mac, maker or name fragment
+cargo run -- sweep --filter 3d:57,192.168.1.10-20    # print only the rows matching any term: an address,
+                                                    # range or subnet, or a mac, maker or name fragment
 cargo run -- wireless                  # the WiFi networks heard here and how their channels overlap
 cargo run -- wireless --plain          # the same as a table on stdout
 cargo run -- speedtest                 # download, upload, latency and jitter against Cloudflare
@@ -338,7 +339,7 @@ src/
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
-    plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
+    plain.rs             the tables printed to stdout for --plain and --filter, and the words in each cell
 ```
 
 One file per concern, named for that concern. When a file passes a few hundred lines, or starts
