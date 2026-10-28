@@ -4,7 +4,7 @@
 //! the screen is.
 
 use crate::os::clipboard;
-use crate::scan::hosts::{Column, Hit, Host, Hosts, Query, Vendor};
+use crate::scan::hosts::{Column, Filter, Hit, Host, Hosts, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep::{self, Event};
 use crate::ui::status_bar::{self, Notice};
@@ -22,7 +22,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const NOTICE_FOR: Duration = Duration::from_millis(2500);
-const PLACEHOLDER: &str = "type part of an ip, mac, maker or name";
+const PLACEHOLDER: &str = "type an ip, range, mac, maker or name · commas for more";
 const HINTS: [&str; 5] = [
     "enter copy ip",
     "tab copy mac",
@@ -31,8 +31,8 @@ const HINTS: [&str; 5] = [
     "^c quit",
 ];
 
-pub fn run(runtime: &Runtime, subnet: Subnet) -> anyhow::Result<()> {
-    let mut app = App::new(runtime, subnet);
+pub fn run(runtime: &Runtime, subnet: Subnet, filter: String) -> anyhow::Result<()> {
+    let mut app = App::new(runtime, subnet, filter);
     let mut terminal = ratatui::init();
     let outcome = app.show(&mut terminal);
     ratatui::restore();
@@ -54,7 +54,7 @@ struct App<'a> {
 }
 
 impl<'a> App<'a> {
-    fn new(runtime: &'a Runtime, subnet: Subnet) -> App<'a> {
+    fn new(runtime: &'a Runtime, subnet: Subnet, filter: String) -> App<'a> {
         let events = sweep::start(runtime, subnet.net);
         let hosts = Hosts::new(subnet.net.hosts().count());
         App {
@@ -62,7 +62,7 @@ impl<'a> App<'a> {
             subnet,
             events,
             hosts,
-            filter: String::new(),
+            filter,
             selected: None,
             table: TableState::default(),
             notice: None,
@@ -128,15 +128,15 @@ impl<'a> App<'a> {
     }
 
     fn visible(&self) -> Vec<(&Host, Option<Hit>)> {
-        let query = Query::new(&self.filter);
+        let filter = Filter::new(&self.filter);
         self.hosts
             .rows
             .values()
             .filter_map(|host| {
-                if query.is_empty() {
+                if filter.is_empty() {
                     Some((host, None))
                 } else {
-                    host.hit(&query).map(|hit| (host, Some(hit)))
+                    filter.hit(host).map(|hit| (host, Some(hit)))
                 }
             })
             .collect()
