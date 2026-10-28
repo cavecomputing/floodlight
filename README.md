@@ -77,7 +77,7 @@ plugged in and all you have is the MAC on its label.
 floodlight sweep                    # the subnet this machine is on
 floodlight sweep 192.168.1.0/24     # a subnet, or an address for its /24
 floodlight sweep --plain            # print the table and exit
-floodlight sweep --find 3d:57       # print only the matching rows
+floodlight sweep --filter 2c:a5:9c,192.168.1.10-20   # print only the matching rows
 floodlight sweep --report lan.pdf   # write it as a PDF report (see --report)
 ```
 
@@ -293,7 +293,7 @@ a PDF, and exit. The report is a Letter page or more, laid out to hand to a clie
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
 - The sweep's report: the subnet, how many addresses answered, how many devices have a known
-  maker or a randomized MAC, and every device's address, MAC, maker, name and ping. `--find`
+  maker or a randomized MAC, and every device's address, MAC, maker, name and ping. `--filter`
   narrows the table the same way it narrows `--plain`.
 - The survey's report scans for 10 seconds first (`--scan-for SECONDS` changes that) and keeps
   every network heard in any scan, since weak ones often answer only the second or third time. It

@@ -48,9 +48,12 @@ enum Mode {
         /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
         /// Defaults to the one this machine is on.
         subnet: Option<String>,
-        /// Print only the hosts matching this ip, mac, maker or name fragment, then exit.
-        #[arg(long, value_name = "QUERY")]
-        find: Option<String>,
+        /// Keep only the matching hosts and print them (or put them in the --report), then exit.
+        /// An address, a range (192.168.1.10-20) or a subnet (192.168.1.0/28) matches those
+        /// addresses; anything else matches a MAC or its first bytes, a maker or a name. Repeat
+        /// it or separate with commas to keep hosts matching any of them.
+        #[arg(long, alias = "find", value_name = "TERM", value_delimiter = ',')]
+        filter: Vec<String>,
     },
     /// Survey the WiFi here: every network heard, its signal and how the channels overlap.
     Wireless {
@@ -169,13 +172,13 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let runtime = tokio::runtime::Runtime::new()?;
     match args.mode {
-        Mode::Sweep { subnet, find } => {
+        Mode::Sweep { subnet, filter } => {
             let subnet = scan::subnet::choose(subnet.as_deref())?;
             if let Some(path) = &args.report {
-                return report::sweep::write(&runtime, subnet, find.as_deref(), path);
+                return report::sweep::write(&runtime, subnet, &filter, path);
             }
-            if args.plain || find.is_some() {
-                return ui::plain::run(&runtime, subnet, find.as_deref());
+            if args.plain || !filter.is_empty() {
+                return ui::plain::run(&runtime, subnet, &filter);
             }
             ui::app::run(&runtime, subnet)
         }

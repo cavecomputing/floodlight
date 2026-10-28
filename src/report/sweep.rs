@@ -1,7 +1,7 @@
 //! The sweep as a report: the subnet, what answered, and a table of every device.
 
 use super::sheet::{self, AQUA, COOL, Cell, Column, FG, MUTED, SUBTLE, Sheet};
-use crate::scan::hosts::{Hosts, Query, Vendor};
+use crate::scan::hosts::{Filter, Hosts, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep;
 use crate::ui::plain;
@@ -19,17 +19,17 @@ const COLUMNS: [Column; 5] = [
 pub fn write(
     runtime: &Runtime,
     subnet: Subnet,
-    find: Option<&str>,
+    filter: &[String],
     path: &Path,
 ) -> anyhow::Result<()> {
     let hosts = sweep::finished(runtime, subnet.net);
-    std::fs::write(path, document(&hosts, &subnet, find))?;
+    std::fs::write(path, document(&hosts, &subnet, filter))?;
     println!("wrote {}", path.display());
     Ok(())
 }
 
 /// The report's PDF file.
-pub fn document(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> Vec<u8> {
+pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> Vec<u8> {
     let (date, time) = sheet::now();
     let mut sheet = Sheet::new(format!("Network sweep · {} · {date} {time}", subnet.net));
 
@@ -52,8 +52,8 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> Vec<u8> {
             format!("{:.1} s", hosts.took.unwrap_or_default().as_secs_f32()),
         ),
     ];
-    if let Some(find) = find {
-        facts.push(("matching", find.to_string()));
+    if !filter.is_empty() {
+        facts.push(("matching", filter.join(", ")));
     }
     sheet.masthead(
         "Network sweep",
@@ -61,13 +61,13 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> Vec<u8> {
         &from.join(" · "),
         &facts,
     );
-    sheet.summary(&summary(hosts, subnet, find));
+    sheet.summary(&summary(hosts, subnet, filter));
 
-    let query = Query::new(find.unwrap_or(""));
+    let kept = Filter::new(filter);
     let rows: Vec<Vec<Cell>> = hosts
         .rows
         .values()
-        .filter(|host| host.shows(&query))
+        .filter(|host| kept.keeps(host))
         .map(|host| {
             let [ip, mac, vendor, name, ping] = plain::host_words(host, subnet.own);
             // Anything the sweep couldn't learn is in the comment colour, like on screen.
@@ -83,7 +83,7 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> Vec<u8> {
         .collect();
     sheet.heading("Devices", 36.0);
     if rows.is_empty() {
-        sheet.summary(if find.is_some() {
+        sheet.summary(if !kept.is_empty() {
             "Nothing matches."
         } else {
             "Nothing answered."
@@ -95,7 +95,7 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> Vec<u8> {
 }
 
 /// What answered, and what the makers say, in a sentence or three.
-fn summary(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> String {
+fn summary(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> String {
     let count = |want: fn(&Vendor) -> bool| hosts.rows.values().filter(|h| want(&h.vendor)).count();
     let known = count(|vendor| matches!(vendor, Vendor::Known(_)));
     let randomized = count(|vendor| *vendor == Vendor::Randomized);
@@ -140,11 +140,12 @@ fn summary(hosts: &Hosts, subnet: &Subnet, find: Option<&str>) -> String {
             " {silent} ignored the ping but turned up in this machine's address table."
         ));
     }
-    if let Some(find) = find {
-        let query = Query::new(find);
-        let shown = hosts.rows.values().filter(|h| h.shows(&query)).count();
+    let kept = Filter::new(filter);
+    if !kept.is_empty() {
+        let shown = hosts.rows.values().filter(|h| kept.keeps(h)).count();
         text.push_str(&format!(
-            " The table lists the {shown} that match \"{find}\"."
+            " The table lists the {shown} that match \"{}\".",
+            filter.join(", ")
         ));
     }
     text
@@ -192,7 +193,7 @@ mod tests {
     fn sums_up_what_answered() {
         let (hosts, subnet) = swept();
         assert_eq!(
-            summary(&hosts, &subnet, Some("doorcam")),
+            summary(&hosts, &subnet, &["doorcam".into()]),
             "80 of the 254 addresses on 192.168.1.0/24 answered. Of those, 26 are named by their \
              maker, 27 use a randomized MAC (usually a phone or laptop keeping its real one \
              private), and 27 have a maker the registry doesn't list. 11 ignored the ping but \
@@ -204,7 +205,7 @@ mod tests {
     #[test]
     fn writes_a_report_of_every_device() {
         let (hosts, subnet) = swept();
-        let file = String::from_utf8_lossy(&document(&hosts, &subnet, None)).to_string();
+        let file = String::from_utf8_lossy(&document(&hosts, &subnet, &[])).to_string();
         assert!(file.starts_with("%PDF"));
         assert!(file.contains("(192.168.1.0/24)"));
         assert!(file.contains("(doorcam.local)"));
