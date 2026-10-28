@@ -284,7 +284,10 @@ fn main() -> anyhow::Result<()> {
                 if args.report.is_some() {
                     bail!("--serve has nothing to report; --report goes with --connect");
                 }
-                return lanspeed::server::serve(port);
+                if args.plain {
+                    return ui::plain::lanspeed_serve(port);
+                }
+                return ui::lanspeed::serve(port);
             }
             if count == 0 {
                 bail!("--count for lanspeed is how many runs: 1 or more");

@@ -1,10 +1,13 @@
-//! The LAN speed test's screen: a row an interval as the data arrives (the transfer under way in
-//! the active colour), each transfer's total as a row of its own, and a graph a direction of the
-//! intervals along the bottom. Same look as the speed test's screen.
+//! The LAN speed test's screens, both ends, in the speed test's look. The client's: a row an
+//! interval as the data arrives (the transfer under way in the active colour), each transfer's
+//! total as a row of its own, and a graph a direction of the intervals along the bottom. The
+//! server's: a row a test served (when, who, what was asked, what moved; the one under way
+//! in the active colour, its numbers the latest interval's), and the same two graphs.
 
 use crate::lanspeed::runs::{self, Event, Run, Runs, Settings};
+use crate::lanspeed::server::{self, Event as ServeEvent, Served, Tests};
 use crate::lanspeed::wire::{Direction, Protocol};
-use crate::ui::speedtest::{PLOT_ROWS, graph};
+use crate::ui::graph::{PLOT_ROWS, graph};
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{self, inset, plain};
@@ -18,6 +21,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 const HINTS: [&str; 2] = ["^r test again", "^c quit"];
+const SERVE_HINTS: [&str; 2] = ["^r clear", "^c quit"];
 
 pub fn run(settings: Settings, count: u32, wait: Duration) -> anyhow::Result<()> {
     let mut screen = Screen {
@@ -270,4 +274,207 @@ fn run_rows(run: &Run, roles: &Roles, udp: bool) -> Vec<Row<'static>> {
         rows.push(Row::new(cells));
     }
     rows
+}
+
+/// The serving end's screen: listens on `port` and shows the tests as clients run them.
+pub fn serve(port: u16) -> anyhow::Result<()> {
+    let mut screen = Serving {
+        events: server::serve(port)?,
+        tests: Tests::default(),
+        port,
+        opened: Instant::now(),
+    };
+    let mut terminal = ratatui::init();
+    let outcome = screen.show(&mut terminal);
+    ratatui::restore();
+    outcome
+}
+
+struct Serving {
+    events: Receiver<ServeEvent>,
+    tests: Tests,
+    port: u16,
+    opened: Instant,
+}
+
+impl Serving {
+    fn show(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+        loop {
+            while let Ok(event) = self.events.try_recv() {
+                self.tests.apply(event);
+            }
+            terminal.draw(|frame| self.draw(frame))?;
+            if let Some(key) = ui::pressed()? {
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                match (key.code, ctrl) {
+                    (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
+                        return Ok(());
+                    }
+                    // Forget the tests served, but not one under way.
+                    (KeyCode::Char('r'), true) => {
+                        let under_way = self.tests.tests.pop().filter(Served::under_way);
+                        self.tests.tests = under_way.into_iter().collect();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        let roles = &TERMINAL;
+        let [_, head, _, table, graphs, rule, bar] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(PLOT_ROWS + 3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas(frame.area());
+
+        let over = self
+            .tests
+            .tests
+            .iter()
+            .filter(|served| !served.under_way())
+            .count();
+        let headline = plain::lanspeed_serve_headline(self.port, over);
+        frame.render_widget(
+            Paragraph::new(Span::styled(format!("# {headline}"), roles.comment())),
+            inset(head),
+        );
+        self.draw_table(frame, table, roles);
+
+        let [received, sent] = Layout::horizontal([Constraint::Fill(1); 2])
+            .spacing(3)
+            .areas(inset(graphs));
+        graph(
+            frame,
+            received,
+            "received · Mbps · an interval a dot",
+            &self.tests.intervals(Direction::Upload),
+            roles.address(),
+            roles,
+        );
+        graph(
+            frame,
+            sent,
+            "sent · Mbps · an interval a dot",
+            &self.tests.intervals(Direction::Download),
+            roles.good(),
+            roles,
+        );
+        status_bar::draw(
+            frame,
+            rule,
+            bar,
+            roles,
+            self.state_line(roles),
+            &SERVE_HINTS,
+        );
+    }
+
+    /// Waiting, or what is moving to or from whom and how far along it is; the last test's
+    /// failure stays up until the next client.
+    fn state_line(&self, roles: &Roles) -> Line<'static> {
+        let (dot, words, tone) = match self.tests.tests.last() {
+            Some(served) if served.under_way() => {
+                let so_far = served
+                    .intervals
+                    .last()
+                    .map(|report| report.to)
+                    .unwrap_or_default();
+                let words = format!(
+                    "{} {} {} · {so_far:.0} of {} s",
+                    match served.test.direction {
+                        Direction::Upload => "receiving from",
+                        Direction::Download => "sending to",
+                    },
+                    served.from,
+                    served.test.protocol.name(),
+                    served.test.seconds.as_secs_f32()
+                );
+                (ui::pulse(self.opened, roles), words, roles.muted())
+            }
+            Some(Served {
+                failed: Some(why), ..
+            }) => (
+                roles.warning(),
+                format!("failed: {why} · waiting for a client"),
+                roles.warning(),
+            ),
+            Some(served) => (
+                roles.good(),
+                format!(
+                    "{} {} · waiting for a client",
+                    served.did(),
+                    plain::mbps(served.total.as_ref().map(|total| total.mbps()))
+                ),
+                roles.muted(),
+            ),
+            None => (
+                ui::pulse(self.opened, roles),
+                "waiting for a client".to_string(),
+                roles.muted(),
+            ),
+        };
+        Line::from(vec![Span::styled("● ", dot), Span::styled(words, tone)])
+    }
+
+    fn draw_table(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
+        let udp = self
+            .tests
+            .tests
+            .iter()
+            .any(|served| served.test.protocol == Protocol::Udp);
+        // The latest tests, when there are more than fit.
+        let room = area.height.saturating_sub(1) as usize;
+        let skipped = self.tests.tests.len().saturating_sub(room);
+        let rows: Vec<Row<'static>> = self.tests.tests[skipped..]
+            .iter()
+            .map(|served| served_row(served, roles, udp))
+            .collect();
+        let mut titles = vec!["time", "client", "test", "asked", "rate", "bitrate"];
+        let mut widths = vec![
+            Constraint::Length(8),
+            Constraint::Length(15),
+            Constraint::Length(12),
+            Constraint::Length(16),
+            Constraint::Length(9),
+            Constraint::Length(12),
+        ];
+        if udp {
+            titles.extend(["jitter", "lost"]);
+            widths.extend([Constraint::Length(8), Constraint::Fill(1)]);
+        } else {
+            // TCP asks for no rate: the column goes.
+            titles.remove(4);
+            widths.remove(4);
+            widths.pop();
+            widths.push(Constraint::Fill(1));
+        }
+        ui::comment_table(frame, area, roles, &titles, widths, rows);
+    }
+}
+
+/// A served test's row: the one under way in the active colour, over in the plain colour, and
+/// a failed one in the warning colour with why in the bitrate's place, spanning what's left.
+fn served_row(served: &Served, roles: &Roles, udp: bool) -> Row<'static> {
+    let mut words = plain::lanspeed_served_row(served);
+    if !udp {
+        words.remove(4);
+    }
+    let style = match (served.under_way(), &served.failed) {
+        (true, _) => roles.active(),
+        (false, Some(_)) => roles.warning(),
+        (false, None) => roles.text(),
+    };
+    let mut cells: Vec<Cell> = words
+        .into_iter()
+        .map(|word| Cell::from(Span::styled(word, style)))
+        .collect();
+    cells[0] = Cell::from(Span::styled(served.time.clone(), roles.comment()));
+    Row::new(cells)
 }

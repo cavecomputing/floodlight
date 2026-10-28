@@ -2,7 +2,8 @@
 //! trace, no screen, so it works in a pipe or a script.
 
 use crate::lanspeed::runs::{self as lanspeed_runs, Event as LanEvent, Settings};
-use crate::lanspeed::wire::{Direction, Report};
+use crate::lanspeed::server::{self, Event as ServeEvent, Served, Tests};
+use crate::lanspeed::wire::{Direction, Protocol, Report};
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
 use crate::ping::trace::{self, Hop, Trace};
@@ -171,6 +172,76 @@ pub fn lanspeed(settings: Settings, count: u32, wait: Duration) -> anyhow::Resul
         println!("# {}", lanspeed_medians(&runs).unwrap_or_default());
     }
     Ok(())
+}
+
+/// Serves on `port` and prints a line a test once it ends, until quit.
+pub fn lanspeed_serve(port: u16) -> anyhow::Result<()> {
+    let events = server::serve(port)?;
+    println!("# {}", lanspeed_serve_headline(port, 0));
+    let mut tests = Tests::default();
+    for event in events {
+        let over = matches!(event, ServeEvent::Finished(_) | ServeEvent::Failed(_));
+        tests.apply(event);
+        if over && let Some(served) = tests.tests.last() {
+            let words: Vec<String> = lanspeed_served_row(served)
+                .into_iter()
+                .filter(|word| !word.is_empty())
+                .collect();
+            println!("{}", words.join(" · "));
+        }
+    }
+    Ok(())
+}
+
+/// `listening on port 5201 · tcp and udp`, and how many tests it has served once it has.
+pub fn lanspeed_serve_headline(port: u16, served: usize) -> String {
+    let mut words = format!("listening on port {port} · tcp and udp");
+    match served {
+        0 => {}
+        1 => words.push_str(" · 1 test served"),
+        n => words.push_str(&format!(" · {n} tests served")),
+    }
+    words
+}
+
+/// A served test's row: when it started, the client, `tcp upload`, what it asked for (streams
+/// and seconds), the UDP rate asked for (empty for TCP), then what moved: the total's bitrate,
+/// and jitter and loss for UDP, once it is over, the latest interval's while it runs, or why it
+/// failed in the bitrate's place.
+pub fn lanspeed_served_row(served: &Served) -> Vec<String> {
+    let test = &served.test;
+    let mut words = vec![
+        served.time.clone(),
+        served.from.to_string(),
+        format!("{} {}", test.protocol.name(), test.direction.name()),
+        format!(
+            "{} stream{} · {} s",
+            test.streams,
+            if test.streams == 1 { "" } else { "s" },
+            test.seconds.as_secs_f32()
+        ),
+        match (test.protocol, test.mbps) {
+            (Protocol::Tcp, _) => String::new(),
+            (Protocol::Udp, 0.0) => "flood".to_string(),
+            (Protocol::Udp, mbps) => format!("{mbps} Mbps"),
+        },
+    ];
+    if let Some(why) = &served.failed {
+        words.push(format!("failed: {why}"));
+        return words;
+    }
+    if let Some(report) = served.total.as_ref().or(served.intervals.last()) {
+        // The interval row's bitrate, then jitter and loss for UDP: not its span, way or transfer.
+        let measured = lanspeed_row(test.direction, report, true);
+        words.extend(
+            measured
+                .into_iter()
+                .enumerate()
+                .filter(|(column, _)| *column == 2 || *column > 3)
+                .map(|(_, word)| word),
+        );
+    }
+    words
 }
 
 /// A row's words in the printed table's columns.

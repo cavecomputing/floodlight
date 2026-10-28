@@ -272,8 +272,10 @@ fn transfer(settings: &Settings, direction: Direction, tx: &Sender<Event>) -> Re
                 streams.push(stream);
             }
             match direction {
+                // The server counts what arrives and reports it back; this end's own count
+                // isn't the measurement, so it goes unheard.
                 Direction::Upload => uploaded(&mut control, &report, || {
-                    transfer::send_tcp(streams, settings.seconds)
+                    transfer::send_tcp(streams, settings.seconds, settings.interval, |_| {})
                 })?,
                 Direction::Download => {
                     let total = transfer::receive_tcp(streams, settings.interval, report)?;
@@ -299,7 +301,13 @@ fn transfer(settings: &Settings, direction: Direction, tx: &Sender<Event>) -> Re
                         .map(|socket| (socket, settings.server))
                         .collect();
                     uploaded(&mut control, &report, || {
-                        transfer::send_udp(sockets, settings.seconds, settings.mbps)
+                        transfer::send_udp(
+                            sockets,
+                            settings.seconds,
+                            settings.mbps,
+                            settings.interval,
+                            |_| {},
+                        )
                     })?
                 }
                 Direction::Download => {
@@ -325,7 +333,7 @@ fn transfer(settings: &Settings, direction: Direction, tx: &Sender<Event>) -> Re
 fn uploaded(
     control: &mut Lines,
     report: &(dyn Fn(&Report) + Sync),
-    send: impl FnOnce() -> Result<u64, String>,
+    send: impl FnOnce() -> Result<Report, String>,
 ) -> Result<Report, String> {
     let total = std::thread::scope(|scope| {
         let reports = scope.spawn(|| control.reports(report));

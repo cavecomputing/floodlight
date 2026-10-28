@@ -28,30 +28,49 @@ const PACE: Duration = Duration::from_millis(1);
 /// of hundred kB) loses datagrams at a few hundred Mbps.
 const RECEIVE_BUFFER: usize = 8 * 1024 * 1024;
 
-/// Writes to every stream at once for `seconds`, then closes its side. Hands back the bytes
-/// written, all streams together.
-pub fn send_tcp(streams: Vec<TcpStream>, seconds: Duration) -> Result<u64, String> {
+/// Writes to every stream at once for `seconds`, then closes its side, reporting what it sent
+/// every `interval` (the sending end's own count, for its screen) and handing back the whole
+/// transfer's report.
+pub fn send_tcp(
+    streams: Vec<TcpStream>,
+    seconds: Duration,
+    interval: Duration,
+    report: impl FnMut(&Report),
+) -> Result<Report, String> {
     let chunk = vec![0u8; CHUNK];
     let start = Instant::now();
+    let tally = Arc::new(Mutex::new(Tally::default()));
+    // Senders still going; the clock ends once none is.
+    let open = Arc::new(AtomicUsize::new(streams.len()));
     std::thread::scope(|scope| {
         let threads: Vec<_> = streams
             .into_iter()
             .map(|mut stream| {
-                let chunk = &chunk;
-                scope.spawn(move || -> Result<u64, String> {
-                    let mut sent = 0u64;
-                    while start.elapsed() < seconds {
-                        stream.write_all(chunk).map_err(|e| e.to_string())?;
-                        sent += CHUNK as u64;
-                    }
+                let (chunk, tally, open) = (&chunk, Arc::clone(&tally), Arc::clone(&open));
+                scope.spawn(move || -> Result<(), String> {
+                    let outcome = loop {
+                        if start.elapsed() >= seconds {
+                            break Ok(());
+                        }
+                        if let Err(e) = stream.write_all(chunk) {
+                            break Err(e.to_string());
+                        }
+                        tally.lock().expect("a sender holds the tally").bytes += CHUNK as u64;
+                    };
                     let _ = stream.shutdown(std::net::Shutdown::Write);
-                    Ok(sent)
+                    open.fetch_sub(1, Ordering::SeqCst);
+                    outcome
                 })
             })
             .collect();
-        let mut total = 0;
+        let total = clock(
+            &tally,
+            interval,
+            |_| open.load(Ordering::SeqCst) == 0,
+            report,
+        );
         for thread in threads {
-            total += thread.join().map_err(|_| "a sending thread died")??;
+            thread.join().map_err(|_| "a sending thread died")??;
         }
         Ok(total)
     })
@@ -105,27 +124,33 @@ pub fn receive_tcp(
 }
 
 /// Sends datagrams from every socket to its address at once for `seconds`, paced to `mbps`
-/// between them all (0: as fast as it can), then a few fins. Hands back the bytes sent.
+/// between them all (0: as fast as it can), then a few fins, reporting what it sent every
+/// `interval` and handing back the whole transfer's report.
 pub fn send_udp(
     sockets: Vec<(Arc<UdpSocket>, SocketAddr)>,
     seconds: Duration,
     mbps: f32,
-) -> Result<u64, String> {
+    interval: Duration,
+    report: impl FnMut(&Report),
+) -> Result<Report, String> {
     let streams = sockets.len().max(1);
     // Each stream's share of the rate, in bytes a second; None is unpaced.
     let pace = (mbps > 0.0).then(|| mbps as f64 * 1e6 / 8.0 / streams as f64);
     let start = Instant::now();
+    let tally = Arc::new(Mutex::new(Tally::default()));
+    let open = Arc::new(AtomicUsize::new(sockets.len()));
     std::thread::scope(|scope| {
         let threads: Vec<_> = sockets
             .into_iter()
             .map(|(socket, to)| {
-                scope.spawn(move || -> Result<u64, String> {
+                let (tally, open) = (Arc::clone(&tally), Arc::clone(&open));
+                scope.spawn(move || -> Result<(), String> {
                     let mut seq = 0u32;
                     let mut sent = 0u64;
-                    loop {
+                    let outcome = loop {
                         let elapsed = start.elapsed();
                         if elapsed >= seconds {
-                            break;
+                            break Ok(());
                         }
                         // Behind the pace: send. Ahead of it: wait a tick.
                         let due =
@@ -138,23 +163,30 @@ pub fn send_udp(
                             seq,
                             sent_ns: elapsed.as_nanos() as u64,
                         };
-                        socket
-                            .send_to(&packet.bytes(), to)
-                            .map_err(|e| e.to_string())?;
+                        if let Err(e) = socket.send_to(&packet.bytes(), to) {
+                            break Err(e.to_string());
+                        }
                         seq = seq.wrapping_add(1);
                         sent += DATAGRAM as u64;
-                    }
+                        tally.lock().expect("a sender holds the tally").bytes += DATAGRAM as u64;
+                    };
                     for _ in 0..FINS {
                         let _ = socket.send_to(&Datagram::Fin.bytes(), to);
                         std::thread::sleep(TICK);
                     }
-                    Ok(sent)
+                    open.fetch_sub(1, Ordering::SeqCst);
+                    outcome
                 })
             })
             .collect();
-        let mut total = 0;
+        let total = clock(
+            &tally,
+            interval,
+            |_| open.load(Ordering::SeqCst) == 0,
+            report,
+        );
         for thread in threads {
-            total += thread.join().map_err(|_| "a sending thread died")??;
+            thread.join().map_err(|_| "a sending thread died")??;
         }
         Ok(total)
     })
@@ -415,7 +447,17 @@ mod tests {
             let streams = (0..2)
                 .map(|_| TcpStream::connect(addr).expect("connect"))
                 .collect();
-            send_tcp(streams, Duration::from_millis(300)).expect("sent")
+            let mut sent = Vec::new();
+            let total = send_tcp(
+                streams,
+                Duration::from_millis(300),
+                Duration::from_millis(100),
+                |report| sent.push(report.bytes),
+            )
+            .expect("sent");
+            // The sender counts its own intervals too, adding up to its total.
+            assert_eq!(sent.iter().sum::<u64>(), total.bytes);
+            total.bytes
         });
         let streams = (0..2)
             .map(|_| listener.accept().expect("accept").0)
@@ -444,7 +486,16 @@ mod tests {
                 )
             })
             .collect();
-        let sender = std::thread::spawn(move || send_udp(sockets, Duration::from_millis(300), 8.0));
+        let sender = std::thread::spawn(move || {
+            send_udp(
+                sockets,
+                Duration::from_millis(300),
+                8.0,
+                Duration::from_millis(100),
+                |_| {},
+            )
+            .map(|total| total.bytes)
+        });
         let started = Instant::now();
         let total = receive_udp(
             &[receiver],
