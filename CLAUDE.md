@@ -208,9 +208,9 @@ page's `referer` (other clients were limited without it), the server's time from
 `__up?bytes=N` and are timed to the answer, 429s are waited out and retried when they ask for
 10 s or less. Cloudflare answers 429 with `retry-after: 3600` once a machine has run many tests in
 a short while; that fails the run, saying so, and no further runs start, since the limit holds for
-the machine. A 403 (Cloudflare's firewall, seen partway through real runs) that stands after one
-more try on a fresh connection leaves that direction with what it measured, and the run fails
-only when it had measured nothing. A failed run's partial numbers stay in its row but out of the
+the machine. A 403 (Cloudflare's firewall, seen partway through real runs) isn't asked again, as in
+Cloudflare's own engine; it leaves that direction with what it measured, and the run fails only
+when it had measured nothing. A failed run's partial numbers stay in its row but out of the
 medians. It speaks HTTPS through the ureq crate on a thread of its own, connections kept open,
 cookies kept, no gzip. Cloudflare publishes no limits or terms for this; they have changed
 without notice (the server-timing format, the referer), so check its own engine when it breaks.

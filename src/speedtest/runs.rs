@@ -230,14 +230,14 @@ pub fn finished(count: u32, wait: Duration, mut each: impl FnMut(&Run)) -> Runs 
 }
 
 fn run_all(count: u32, wait: Duration, tx: Sender<Event>) {
-    let mut agent = cloudflare::agent();
+    let agent = cloudflare::agent();
     for i in 0..count {
         if i > 0 {
             let _ = tx.send(Event::Waiting(wait));
             std::thread::sleep(wait);
         }
         let _ = tx.send(Event::Started);
-        let outcome = run(&mut agent, &tx);
+        let outcome = run(&agent, &tx);
         // Cloudflare's limit is on this machine for a while, so the runs after would only be
         // refused too.
         let limited = matches!(&outcome, Err(why) if why.starts_with(cloudflare::LIMITED));
@@ -252,7 +252,7 @@ fn run_all(count: u32, wait: Duration, tx: Sender<Event>) {
     let _ = tx.send(Event::Done);
 }
 
-fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
+fn run(agent: &Agent, tx: &Sender<Event>) -> Result<(), String> {
     let send = |event| {
         let _ = tx.send(event);
     };
@@ -330,40 +330,31 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
 }
 
 /// One transfer of `bytes` each over `streams` connections at once, and how long the slowest
-/// took. A refusal (403) is tried once more on fresh connections, in case Cloudflare took against
-/// the ones in use rather than this machine.
+/// took. A refusal (403) stands, as in Cloudflare's own engine: asking again on fresh
+/// connections only added load and lost the cookies Cloudflare had set.
 fn transfer(
-    agent: &mut Agent,
+    agent: &Agent,
     phase: Phase,
     bytes: usize,
     body: &[u8],
     streams: usize,
 ) -> Result<Duration, String> {
-    let one = |agent: &Agent| match phase {
+    let one = || match phase {
         Phase::Upload => cloudflare::upload(agent, body),
         _ => cloudflare::download(agent, bytes),
     };
     // Each stream on a thread of its own; the agent they share opens a connection for each.
-    let all = |agent: &Agent| -> Result<Duration, String> {
-        std::thread::scope(|scope| {
-            let threads: Vec<_> = (0..streams).map(|_| scope.spawn(|| one(agent))).collect();
-            let mut slowest = Duration::ZERO;
-            for thread in threads {
-                let took = thread
-                    .join()
-                    .map_err(|_| "a transfer's thread died".to_string())??;
-                slowest = slowest.max(took);
-            }
-            Ok(slowest)
-        })
-    };
-    match all(agent) {
-        Err(why) if why.starts_with(cloudflare::REFUSED) => {
-            *agent = cloudflare::agent();
-            all(agent)
+    std::thread::scope(|scope| {
+        let threads: Vec<_> = (0..streams).map(|_| scope.spawn(one)).collect();
+        let mut slowest = Duration::ZERO;
+        for thread in threads {
+            let took = thread
+                .join()
+                .map_err(|_| "a transfer's thread died".to_string())??;
+            slowest = slowest.max(took);
         }
-        outcome => outcome,
-    }
+        Ok(slowest)
+    })
 }
 
 #[cfg(test)]
