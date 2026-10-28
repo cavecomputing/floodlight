@@ -11,42 +11,12 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 6] = [
-    Column {
-        label: "time",
-        width: 0.14,
-        mono: true,
-        right: false,
-    },
-    Column {
-        label: "upload",
-        width: 0.18,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "download",
-        width: 0.18,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "jitter",
-        width: 0.15,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "lost",
-        width: 0.15,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "",
-        width: 0.20,
-        mono: false,
-        right: false,
-    },
+    Column::mono("time", 0.14),
+    Column::number("upload", 0.18),
+    Column::number("download", 0.18),
+    Column::number("jitter", 0.15),
+    Column::number("lost", 0.15),
+    Column::text("", 0.20),
 ];
 
 /// Runs the test `count` times, `wait` apart, saying how each transfer went, then writes the

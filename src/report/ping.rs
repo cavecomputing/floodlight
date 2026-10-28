@@ -12,48 +12,13 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 7] = [
-    Column {
-        label: "host",
-        width: 0.31,
-        mono: true,
-        right: false,
-    },
-    Column {
-        label: "sent",
-        width: 0.09,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "lost",
-        width: 0.14,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "min",
-        width: 0.115,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "avg",
-        width: 0.115,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "max",
-        width: 0.115,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "jitter",
-        width: 0.115,
-        mono: false,
-        right: true,
-    },
+    Column::mono("host", 0.31),
+    Column::number("sent", 0.09),
+    Column::number("lost", 0.14),
+    Column::number("min", 0.115),
+    Column::number("avg", 0.115),
+    Column::number("max", 0.115),
+    Column::number("jitter", 0.115),
 ];
 
 /// Pings each host `count` times, `wait` apart, saying how each ping went, then writes the

@@ -11,42 +11,12 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 6] = [
-    Column {
-        label: "time",
-        width: 0.12,
-        mono: true,
-        right: false,
-    },
-    Column {
-        label: "latency",
-        width: 0.12,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "jitter",
-        width: 0.11,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "download",
-        width: 0.15,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "upload",
-        width: 0.15,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "server",
-        width: 0.35,
-        mono: false,
-        right: false,
-    },
+    Column::mono("time", 0.12),
+    Column::number("latency", 0.12),
+    Column::number("jitter", 0.11),
+    Column::number("download", 0.15),
+    Column::number("upload", 0.15),
+    Column::text("server", 0.35),
 ];
 
 /// Runs the test `count` times, `wait` apart, saying how each went, then writes the report.

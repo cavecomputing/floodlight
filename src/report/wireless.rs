@@ -13,42 +13,12 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 
 const COLUMNS: [Column; 6] = [
-    Column {
-        label: "network",
-        width: 0.27,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "ch",
-        width: 0.06,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "band",
-        width: 0.10,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "width",
-        width: 0.10,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "signal",
-        width: 0.10,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "bssid",
-        width: 0.37,
-        mono: true,
-        right: false,
-    },
+    Column::text("network", 0.27),
+    Column::number("ch", 0.06),
+    Column::text("band", 0.10),
+    Column::text("width", 0.10),
+    Column::number("signal", 0.10),
+    Column::mono("bssid", 0.37),
 ];
 
 /// Lanes in one band's chart; quieter networks past this are left out (the table has them all).

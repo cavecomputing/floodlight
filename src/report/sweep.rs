@@ -9,36 +9,11 @@ use std::path::Path;
 use tokio::runtime::Runtime;
 
 const COLUMNS: [Column; 5] = [
-    Column {
-        label: "address",
-        width: 0.17,
-        mono: true,
-        right: false,
-    },
-    Column {
-        label: "mac",
-        width: 0.19,
-        mono: true,
-        right: false,
-    },
-    Column {
-        label: "maker",
-        width: 0.25,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "name",
-        width: 0.26,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "ping",
-        width: 0.13,
-        mono: false,
-        right: true,
-    },
+    Column::mono("address", 0.17),
+    Column::mono("mac", 0.19),
+    Column::text("maker", 0.25),
+    Column::text("name", 0.26),
+    Column::number("ping", 0.13),
 ];
 
 pub fn write(

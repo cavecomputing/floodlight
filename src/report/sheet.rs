@@ -58,6 +58,34 @@ pub struct Column {
     pub right: bool,
 }
 
+impl Column {
+    /// Words, set to the left.
+    pub const fn text(label: &'static str, width: f32) -> Column {
+        Column {
+            label,
+            width,
+            mono: false,
+            right: false,
+        }
+    }
+
+    /// Addresses, MACs and times, in the monospaced font.
+    pub const fn mono(label: &'static str, width: f32) -> Column {
+        Column {
+            mono: true,
+            ..Column::text(label, width)
+        }
+    }
+
+    /// Numbers, set to the right so their digits line up.
+    pub const fn number(label: &'static str, width: f32) -> Column {
+        Column {
+            right: true,
+            ..Column::text(label, width)
+        }
+    }
+}
+
 /// One cell's text and colour.
 pub type Cell = (String, Rgb);
 

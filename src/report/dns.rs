@@ -9,46 +9,13 @@ use hickory_proto::rr::{RData, Record};
 use std::path::Path;
 
 const RECORDS: [Column; 4] = [
-    Column {
-        label: "name",
-        width: 0.3,
-        mono: true,
-        right: false,
-    },
-    Column {
-        label: "ttl",
-        width: 0.08,
-        mono: false,
-        right: true,
-    },
-    Column {
-        label: "type",
-        width: 0.1,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "data",
-        width: 0.52,
-        mono: true,
-        right: false,
-    },
+    Column::mono("name", 0.3),
+    Column::number("ttl", 0.08),
+    Column::text("type", 0.1),
+    Column::mono("data", 0.52),
 ];
 
-const FIELDS: [Column; 2] = [
-    Column {
-        label: "field",
-        width: 0.2,
-        mono: false,
-        right: false,
-    },
-    Column {
-        label: "value",
-        width: 0.8,
-        mono: false,
-        right: false,
-    },
-];
+const FIELDS: [Column; 2] = [Column::text("field", 0.2), Column::text("value", 0.8)];
 
 pub fn write(
     path: &Path,
