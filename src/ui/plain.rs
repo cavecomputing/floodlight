@@ -417,23 +417,22 @@ pub fn ping_words(ping: &Ping) -> [String; 3] {
     [ping.seq.to_string(), ping.time.clone(), latency]
 }
 
-/// `10 sent · 1 lost (10.0%) · min 0.41 · avg 1.10 · max 3.20 · jitter 0.30 ms`
+/// `avg 1.10 · min 0.41 · max 3.20 · jitter 0.30 ms · 10 sent · 1 lost (10.0%)`
 pub fn ping_totals(pings: &Pings) -> String {
-    let lost = pings.lost();
-    let mut words = format!(
-        "{} sent · {lost} lost ({:.1}%)",
-        pings.pings.len(),
-        pings.loss()
-    );
+    let mut words = String::new();
     if let (Some(min), Some(average), Some(max)) = (pings.min(), pings.average(), pings.max()) {
-        words.push_str(&format!(
-            " · min {min:.2} · avg {average:.2} · max {max:.2}"
-        ));
+        words.push_str(&format!("avg {average:.2} · min {min:.2} · max {max:.2}"));
         match pings.jitter() {
-            Some(jitter) => words.push_str(&format!(" · jitter {jitter:.2} ms")),
-            None => words.push_str(" ms"),
+            Some(jitter) => words.push_str(&format!(" · jitter {jitter:.2} ms · ")),
+            None => words.push_str(" ms · "),
         }
     }
+    words.push_str(&format!(
+        "{} sent · {} lost ({:.1}%)",
+        pings.pings.len(),
+        pings.lost(),
+        pings.loss()
+    ));
     words
 }
 

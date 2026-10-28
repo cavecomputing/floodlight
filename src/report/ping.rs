@@ -1,9 +1,10 @@
 //! The pings as a report: the average and the share lost up top, what they mean in a few
-//! sentences, with several hosts a table of their totals, then a chart of each host's round trips.
-//! Every ping is in the charts, so there is no table of them.
+//! sentences, with several hosts a table of their totals (each name in its line's colour), then
+//! one chart of every host's round trips. Every ping is in the chart, so there is no table of them.
 
-use super::sheet::{self, ACCENT, Cell, Column, FG, MUTED, Sheet};
-use super::speedtest::chart;
+use super::pdf::Rgb;
+use super::sheet::{self, ACCENT, AQUA, Cell, Column, FG, MUTED, Sheet};
+use super::speedtest::shared_chart;
 use crate::ping::pings::{self, Pings};
 use crate::ping::target::Target;
 use crate::ui::plain;
@@ -13,13 +14,17 @@ use std::time::Duration;
 
 const COLUMNS: [Column; 7] = [
     Column::mono("Host", 0.31),
-    Column::number("Sent", 0.09),
-    Column::number("Lost", 0.14),
-    Column::number("Min", 0.115),
     Column::number("Avg", 0.115),
+    Column::number("Min", 0.115),
     Column::number("Max", 0.115),
     Column::number("Jitter", 0.115),
+    Column::number("Sent", 0.09),
+    Column::number("Lost", 0.14),
 ];
+
+/// Each host's line on the chart, in the screen's order: aqua (green on paper), blue, amber,
+/// purple, then the text colour.
+const INKS: [Rgb; 5] = [AQUA, ACCENT, (0x9a, 0x67, 0x00), (0x82, 0x50, 0xdf), FG];
 
 /// Pings each host `count` times, `wait` apart, saying how each ping went, then writes the
 /// report.
@@ -81,43 +86,48 @@ pub fn document(pings: &[Pings], targets: &[Target], wait: Duration) -> Vec<u8> 
         let rows: Vec<Vec<Cell>> = pings
             .iter()
             .zip(&labels)
-            .map(|(pings, label)| {
+            .enumerate()
+            .map(|(i, (pings, label))| {
                 // A host that lost any in the darkest ink, as a failed run is in the speed
-                // test's report.
+                // test's report. The name is in its line's colour: the chart's key.
                 let lost = format!("{} · {:.1}%", pings.lost(), pings.loss());
                 let ink = if pings.lost() > 0 { FG } else { MUTED };
                 vec![
-                    (label.clone(), FG),
-                    (pings.pings.len().to_string(), MUTED),
-                    (lost, ink),
+                    (label.clone(), INKS[i % INKS.len()]),
+                    (ms(pings.average()), FG),
                     (ms(pings.min()), MUTED),
-                    (ms(pings.average()), MUTED),
                     (ms(pings.max()), MUTED),
                     (ms(pings.jitter()), MUTED),
+                    (pings.pings.len().to_string(), MUTED),
+                    (lost, ink),
                 ]
             })
             .collect();
         sheet.heading("Hosts", 36.0);
         sheet.table(&COLUMNS, &rows);
     }
-    for (pings, label) in pings.iter().zip(&labels) {
-        let seqs: Vec<String> = pings
-            .pings
-            .iter()
-            .map(|ping| ping.seq.to_string())
-            .collect();
-        let seqs: Vec<&str> = seqs.iter().map(String::as_str).collect();
-        let round_trips = pings
-            .pings
-            .iter()
-            .map(|ping| ping.reply.as_ref().ok().copied())
-            .collect();
-        let title = match targets.len() {
-            1 => "Round trip of each ping".to_string(),
-            _ => format!("Round trip to {label}"),
-        };
-        chart(&mut sheet, &title, &seqs, round_trips, "ms", ACCENT);
-    }
+    // One line a host on one chart, numbered along the bottom by the host that sent the most.
+    let most = pings.iter().map(|pings| pings.pings.len()).max();
+    let seqs: Vec<String> = (1..=most.unwrap_or_default())
+        .map(|seq| seq.to_string())
+        .collect();
+    let seqs: Vec<&str> = seqs.iter().map(String::as_str).collect();
+    let series: Vec<(Vec<Option<f32>>, Rgb)> = pings
+        .iter()
+        .enumerate()
+        .map(|(i, pings)| {
+            let replies = pings.pings.iter();
+            let round_trips = replies.map(|ping| ping.reply.as_ref().ok().copied());
+            // One host's line is the report's usual blue.
+            let ink = if targets.len() == 1 {
+                ACCENT
+            } else {
+                INKS[i % INKS.len()]
+            };
+            (round_trips.collect(), ink)
+        })
+        .collect();
+    shared_chart(&mut sheet, "Round trip of each ping", &seqs, &series, "ms");
 
     sheet.finish()
 }
@@ -254,13 +264,14 @@ mod tests {
     }
 
     #[test]
-    fn writes_a_chart_a_host_and_no_table_of_pings() {
+    fn writes_one_chart_for_every_host_and_no_table_of_pings() {
         let targets = [target(1, Some("gateway")), target(20, None)];
         let measured = [pings(&[Some(1.25), None, Some(2.5)]), pings(&[Some(0.5)])];
         let file =
             String::from_utf8_lossy(&document(&measured, &targets, Duration::ZERO)).to_string();
         assert!(file.starts_with("%PDF"));
-        assert!(file.contains("(Round trip to 192.168.1.20)"));
+        assert_eq!(file.matches("(Round trip of each ping)").count(), 1);
+        assert!(!file.contains("(Round trip to"));
         assert!(file.contains("(Hosts)"));
         assert!(!file.contains("(Pings)"));
         assert!(file.contains("(Page 1 of"));

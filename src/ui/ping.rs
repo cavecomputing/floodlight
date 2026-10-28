@@ -1,15 +1,17 @@
-//! The ping screen: each host's totals up top, a row a ping (the latest that fit, the lost ones
-//! in the warning colour), and a graph of each host's round trips along the bottom, side by side.
-//! Same look as the speed test's screen.
+//! The ping screen: a row a host up top with its average and totals, marked with a dot in its
+//! own colour, a row a ping (the latest that fit, the lost ones in the warning colour), and one
+//! graph along the bottom with every host's round trips on it in those colours. Same look as the
+//! speed test's screen.
 
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
-use crate::ui::graph::{PLOT_ROWS, graph};
+use crate::ui::graph::shared_graph;
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{self, inset, plain};
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row};
 use ratatui::{DefaultTerminal, Frame};
@@ -18,8 +20,10 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 const HINTS: [&str; 2] = ["^r start over", "^c quit"];
-/// Graphs side by side in a row, before the next row starts.
-const GRAPHS_A_ROW: usize = 3;
+/// With several hosts, tab picks one to see alone on the graph.
+const HINTS_SEVERAL: [&str; 3] = ["tab one host", "^r start over", "^c quit"];
+/// Rows the graph plots in: taller than the other screens', since every host shares it.
+const PLOT_ROWS: u16 = 10;
 
 pub fn run(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()> {
     let ips: Vec<Ipv4Addr> = targets.iter().map(|target| target.ip).collect();
@@ -32,6 +36,7 @@ pub fn run(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()>
         done: false,
         headline: plain::ping_headline(targets, count, wait),
         targets: targets.to_vec(),
+        focus: None,
         count,
         opened: Instant::now(),
     };
@@ -51,6 +56,8 @@ struct Screen {
     done: bool,
     headline: String,
     targets: Vec<Target>,
+    /// The one host shown alone on the graph (tab), or None for all of them.
+    focus: Option<usize>,
     count: u32,
     opened: Instant,
 }
@@ -81,6 +88,14 @@ impl Screen {
                     (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
                         return Ok(());
                     }
+                    // All the hosts, then each alone, then all again.
+                    (KeyCode::Tab, _) if self.targets.len() > 1 => {
+                        self.focus = match self.focus {
+                            None => Some(0),
+                            Some(i) if i + 1 < self.targets.len() => Some(i + 1),
+                            Some(_) => None,
+                        };
+                    }
                     // Forget them and start over; dropping the old receiver stops its pings.
                     (KeyCode::Char('r'), true) => {
                         if let Ok(events) = pings::start(ips, self.count, wait) {
@@ -98,61 +113,60 @@ impl Screen {
 
     fn draw(&self, frame: &mut Frame) {
         let roles = &TERMINAL;
-        let hosts = self.targets.len();
-        let graph_rows = hosts.div_ceil(GRAPHS_A_ROW);
-        let [_, head, totals, _, table, graphs, rule, bar] = Layout::vertical([
+        let hosts = self.targets.len() as u16;
+        let [_, head, _, rundown, _, table, graph, rule, bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(hosts as u16),
+            Constraint::Length(1),
+            Constraint::Length(hosts + 1),
             Constraint::Length(1),
             Constraint::Fill(1),
-            Constraint::Length((PLOT_ROWS + 3) * graph_rows as u16),
+            Constraint::Length(PLOT_ROWS + 3),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
         .areas(frame.area());
 
-        let mut lines = vec![self.headline.clone()];
-        lines.extend(plain::ping_totals_lines(&self.targets, &self.pings));
-        let lines: Vec<Line> = lines
-            .into_iter()
-            .map(|words| Line::styled(format!("# {words}"), roles.comment()))
-            .collect();
-        let top = Rect {
-            height: head.height + totals.height,
-            ..head
-        };
-        frame.render_widget(Paragraph::new(lines), inset(top));
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!("# {}", self.headline),
+                roles.comment(),
+            )),
+            inset(head),
+        );
+        self.draw_rundown(frame, rundown, roles);
         self.draw_table(frame, table, roles);
 
-        // Four hosts' graphs go two and two rather than three and one.
-        let a_row = hosts.div_ceil(graph_rows.max(1));
-        let rows =
-            Layout::vertical(vec![Constraint::Length(PLOT_ROWS + 3); graph_rows]).split(graphs);
-        for (i, (target, pings)) in self.targets.iter().zip(&self.pings).enumerate() {
-            let row = rows[i / a_row];
-            let places = Layout::horizontal(vec![Constraint::Fill(1); a_row])
-                .spacing(3)
-                .split(inset(row));
-            let title = match hosts {
-                1 => "latency · ms · a gap is a ping lost".to_string(),
-                _ => format!("{} · ms", target.label()),
-            };
-            let round_trips: Vec<Option<f32>> = pings
-                .pings
-                .iter()
-                .map(|ping| ping.reply.as_ref().ok().copied())
-                .collect();
-            graph(
-                frame,
-                places[i % a_row],
-                &title,
-                &round_trips,
-                roles.good(),
-                roles,
-            );
-        }
-        status_bar::draw(frame, rule, bar, roles, self.state_line(roles), &HINTS);
+        let round_trips: Vec<Vec<Option<f32>>> = self
+            .pings
+            .iter()
+            .map(|pings| {
+                let replies = pings.pings.iter();
+                replies
+                    .map(|ping| ping.reply.as_ref().ok().copied())
+                    .collect()
+            })
+            .collect();
+        let series: Vec<(&[Option<f32>], Style)> = round_trips
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.focus.is_none_or(|focus| focus == *i))
+            .map(|(i, values)| (values.as_slice(), roles.host(i)))
+            .collect();
+        let title = match self.focus {
+            Some(i) => format!(
+                "{} · latency · ms · a gap is a ping lost",
+                self.targets[i].label()
+            ),
+            None => "latency · ms · a gap is a ping lost".to_string(),
+        };
+        shared_graph(frame, inset(graph), &title, &series, roles);
+        let hints: &[&str] = if self.targets.len() > 1 {
+            &HINTS_SEVERAL
+        } else {
+            &HINTS
+        };
+        status_bar::draw(frame, rule, bar, roles, self.state_line(roles), hints);
     }
 
     fn state_line(&self, roles: &Roles) -> Line<'static> {
@@ -178,6 +192,50 @@ impl Screen {
         Line::from(vec![Span::styled("● ", dot), Span::styled(words, tone)])
     }
 
+    /// A row a host: its dot in its colour and its name, then the average and the rest.
+    fn draw_rundown(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
+        let ms = |value: Option<f32>| value.map_or("—".to_string(), |ms| format!("{ms:.2} ms"));
+        let rows: Vec<Row<'static>> = self
+            .targets
+            .iter()
+            .zip(&self.pings)
+            .enumerate()
+            .map(|(i, (target, pings))| {
+                let host = Line::from(vec![
+                    Span::styled("● ", roles.host(i)),
+                    Span::styled(target.label(), roles.text()),
+                ]);
+                let lost = format!("{} · {:.1}%", pings.lost(), pings.loss());
+                let lost = match pings.lost() {
+                    0 => Span::styled(lost, roles.muted()),
+                    _ => Span::styled(lost, roles.warning()),
+                };
+                let row = Row::new(vec![
+                    Cell::from(host),
+                    Cell::from(Span::styled(ms(pings.average()), roles.text())),
+                    Cell::from(Span::styled(ms(pings.min()), roles.muted())),
+                    Cell::from(Span::styled(ms(pings.max()), roles.muted())),
+                    Cell::from(Span::styled(ms(pings.jitter()), roles.muted())),
+                    Cell::from(Span::styled(pings.pings.len().to_string(), roles.muted())),
+                    Cell::from(lost),
+                ]);
+                // The host on the graph alone sits on the band, like the active row elsewhere.
+                match self.focus == Some(i) {
+                    true => row.style(roles.band()),
+                    false => row,
+                }
+            })
+            .collect();
+        let longest = self.targets.iter().map(|target| target.label().len());
+        let mut widths = vec![Constraint::Length(
+            longest.max().unwrap_or_default() as u16 + 2,
+        )];
+        widths.extend([Constraint::Length(10); 4]);
+        widths.extend([Constraint::Length(6), Constraint::Fill(1)]);
+        let titles = ["host", "avg", "min", "max", "jitter", "sent", "lost"];
+        ui::comment_table(frame, area, roles, &titles, widths, rows);
+    }
+
     fn draw_table(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
         // The latest pings, when there are more than the rows can hold.
         let room = area.height.saturating_sub(1) as usize;
@@ -199,7 +257,7 @@ impl Screen {
                 ];
                 if several {
                     let label = self.targets[host].label();
-                    cells.push(Cell::from(Span::styled(label, roles.address())));
+                    cells.push(Cell::from(Span::styled(label, roles.host(host))));
                 }
                 cells.push(Cell::from(latency));
                 Row::new(cells)

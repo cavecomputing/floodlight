@@ -163,17 +163,21 @@ hundred megabytes on a fast line.
 
 ## ping
 
-Pings up to five hosts side by side, over and over, and shows every reply as it comes back, the
-ones lost (and why: `timed out`, `unreachable`), and each host's totals so far: sent, lost, and the
-minimum, average and maximum round trip with the jitter (how much one differs from the next).
-Each host gets a graph along the bottom that plots its round trips, a gap where one was lost, so a
-link that drops out or slows down shows at a glance, and which hop it is shows by which graph has
-the gaps. With no host it pings this machine's gateway (its router).
+Pings up to five hosts side by side, over and over. Up top is a row a host, marked with a dot in
+its own colour: the average round trip, the minimum, maximum and jitter (how much one differs from
+the next), how many were sent and how many lost. Under it every reply as it comes back, and the
+ones lost (and why: `timed out`, `unreachable`). One graph along the bottom plots every host's
+round trips in its colour, a gap where one was lost, so a link that drops out or slows down shows
+at a glance. Hosts whose round trips are close land on the same spots, so **tab** shows one host
+alone on the graph, then the next, then all of them again. With no host it pings this machine's
+gateway (its router).
 
 ```
   # ping 2 hosts · until stopped · 500 ms apart
-  # gateway (192.168.1.1) · 42 sent · 1 lost (2.4%) · min 0.61 · avg 1.12 · max 4.80 · jitter 0.35 ms
-  # 1.1.1.1               · 42 sent · 0 lost (0.0%) · min 9.80 · avg 11.02 · max 14.10 · jitter 0.90 ms
+
+  # host                     avg         min         max         jitter      sent    lost
+    ● gateway (192.168.1.1)  1.12 ms     0.61 ms     4.80 ms     0.35 ms     42      1 · 2.4%
+    ● 1.1.1.1                11.02 ms    9.80 ms     14.10 ms    0.90 ms     42      0 · 0.0%
 
   # seq     time      host                   latency
     41      14:05:30  gateway (192.168.1.1)  timed out
@@ -184,7 +188,7 @@ the gaps. With no host it pings this machine's gateway (its router).
 ```bash
 floodlight ping                         # the gateway, until you quit; ^r starts over
 floodlight ping 1.1.1.1                 # a host by address or by name
-floodlight ping 192.168.1.1 1.1.1.1     # up to five hosts at once, a graph each
+floodlight ping 192.168.1.1 1.1.1.1     # up to five hosts at once, a colour each
 floodlight ping 1.1.1.1 --count 100     # a hundred pings, then stop (0 means until you quit)
 floodlight ping --wait 1000             # a second between pings (500 ms by default)
 floodlight ping 1.1.1.1 --count 20 --plain         # print each ping as it comes back, then the totals
@@ -362,8 +366,9 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   across the runs (when there are several) to show the trend, and every run in a table.
 - The ping report pings each host `--count` times (10 unless told; it needs an end, so not 0)
   and leads with the share lost (and for one host the average, minimum, maximum and jitter), a
-  summary that names the pings lost, a table of each host's totals when there are several, and a
-  chart of each host's round trips. Every ping is in the charts, so there is no table of them.
+  summary that names the pings lost, a table of each host's totals when there are several (each
+  name in its line's colour), and one chart with every host's round trips on it. Every ping is in
+  the chart, so there is no table of them.
 - The LAN speed report leads with the throughput each way (the median across runs), the jitter
   and loss for UDP, a summary of what the link carried, a chart a direction (of each interval for
   one run, of each run's total for several), and every run in a table.
