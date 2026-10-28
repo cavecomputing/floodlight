@@ -353,7 +353,7 @@ impl Serving {
         graph(
             frame,
             received,
-            "received · Mbps · an interval a point",
+            "received · Mbps · an interval a dot",
             &self.tests.intervals(Direction::Upload),
             roles.address(),
             roles,
@@ -361,7 +361,7 @@ impl Serving {
         graph(
             frame,
             sent,
-            "sent · Mbps · an interval a point",
+            "sent · Mbps · an interval a dot",
             &self.tests.intervals(Direction::Download),
             roles.good(),
             roles,
