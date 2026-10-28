@@ -10,6 +10,7 @@ use crate::ui::theme::{Roles, TERMINAL};
 use crate::ui::{self, inset, plain};
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row};
 use ratatui::{DefaultTerminal, Frame};
@@ -171,6 +172,7 @@ impl Screen {
 
     /// A row a host: its dot in its colour and its name, then the average and the rest.
     fn draw_rundown(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
+        let several = self.targets.len() > 1;
         let ms = |value: Option<f32>| value.map_or("—".to_string(), |ms| format!("{ms:.2} ms"));
         let rows: Vec<Row<'static>> = self
             .targets
@@ -178,16 +180,29 @@ impl Screen {
             .zip(&self.pings)
             .enumerate()
             .map(|(i, (target, pings))| {
+                // With several hosts, the one on the graph is marked like the prompt: a band
+                // vanishes in a theme whose bright black is its background (Solarized Dark).
+                let picked = self.selected == i;
+                let marker = match (several, picked) {
+                    (false, _) => Span::raw(""),
+                    (true, true) => Span::styled("> ", roles.active()),
+                    (true, false) => Span::raw("  "),
+                };
+                let name = match several && picked {
+                    true => roles.text().add_modifier(Modifier::BOLD),
+                    false => roles.text(),
+                };
                 let host = Line::from(vec![
+                    marker,
                     Span::styled("● ", roles.host(i)),
-                    Span::styled(target.label(), roles.text()),
+                    Span::styled(target.label(), name),
                 ]);
                 let lost = format!("{} · {:.1}%", pings.lost(), pings.loss());
                 let lost = match pings.lost() {
                     0 => Span::styled(lost, roles.muted()),
                     _ => Span::styled(lost, roles.warning()),
                 };
-                let row = Row::new(vec![
+                Row::new(vec![
                     Cell::from(host),
                     Cell::from(Span::styled(ms(pings.average()), roles.text())),
                     Cell::from(Span::styled(ms(pings.min()), roles.muted())),
@@ -195,17 +210,12 @@ impl Screen {
                     Cell::from(Span::styled(ms(pings.jitter()), roles.muted())),
                     Cell::from(Span::styled(pings.pings.len().to_string(), roles.muted())),
                     Cell::from(lost),
-                ]);
-                // The host on the graph sits on the band, like the active row elsewhere.
-                match self.targets.len() > 1 && self.selected == i {
-                    true => row.style(roles.band()),
-                    false => row,
-                }
+                ])
             })
             .collect();
         let longest = self.targets.iter().map(|target| target.label().len());
         let mut widths = vec![Constraint::Length(
-            longest.max().unwrap_or_default() as u16 + 2,
+            longest.max().unwrap_or_default() as u16 + if several { 4 } else { 2 },
         )];
         widths.extend([Constraint::Length(10); 4]);
         widths.extend([Constraint::Length(6), Constraint::Fill(1)]);

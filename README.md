@@ -166,7 +166,7 @@ hundred megabytes on a fast line.
 Pings up to five hosts side by side, over and over. Up top is a row a host, marked with a dot in
 its own colour: the average round trip, the minimum, maximum and jitter (how much one differs from
 the next), how many were sent and how many lost. Under it a graph, as tall as the window allows,
-plots the round trips of the host picked with **↑↓** (the row on the band) in its colour, a `×`
+plots the round trips of the host picked with **↑↓** (the row marked `>`) in its colour, a `×`
 on the baseline where one was lost, so a link that drops out or slows down shows at a glance.
 Its scale hugs the round trips in round steps, so a few ms of jitter shows even at 40 ms, and the
 pings are numbered along the bottom. With no host it pings this machine's
