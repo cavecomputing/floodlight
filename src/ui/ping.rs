@@ -135,6 +135,7 @@ impl Screen {
             inset(graph_area),
             &title,
             &round_trips,
+            (self.count > 0).then_some(self.count as usize),
             roles.host(i),
             true,
             roles,

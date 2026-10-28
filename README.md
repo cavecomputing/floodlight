@@ -168,8 +168,10 @@ its own colour: the average round trip, the minimum, maximum and jitter (how muc
 the next), how many were sent and how many lost. Under it a graph, as tall as the window allows,
 plots the round trips of the host picked with **↑↓** (the row marked `>`) in its colour, a `×`
 on the baseline where one was lost, so a link that drops out or slows down shows at a glance.
-Its scale climbs from 0 in steps of 5 ms (10, 25 or more when a spike leaves too few rows for
-fives), and the pings are numbered along the bottom. With no host it pings this machine's
+Its scale climbs from 0 in steps of 10 ms (20, 50 or more when a spike leaves too few rows for
+tens), and the pings are numbered along the bottom. With `--count`, the graph is laid out for
+every ping from the start, spread across the width, and fills in from left to right; without
+one, the latest pings scroll through. With no host it pings this machine's
 gateway (its router).
 
 ```
