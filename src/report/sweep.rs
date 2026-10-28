@@ -16,12 +16,7 @@ const COLUMNS: [Column; 5] = [
     Column::number("ping", 0.13),
 ];
 
-pub fn write(
-    runtime: &Runtime,
-    subnet: Subnet,
-    filter: &[String],
-    path: &Path,
-) -> anyhow::Result<()> {
+pub fn write(runtime: &Runtime, subnet: Subnet, filter: &str, path: &Path) -> anyhow::Result<()> {
     let hosts = sweep::finished(runtime, subnet.net);
     std::fs::write(path, document(&hosts, &subnet, filter))?;
     println!("wrote {}", path.display());
@@ -29,7 +24,7 @@ pub fn write(
 }
 
 /// The report's PDF file.
-pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> Vec<u8> {
+pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &str) -> Vec<u8> {
     let (date, time) = sheet::now();
     let mut sheet = Sheet::new(format!("Network sweep · {} · {date} {time}", subnet.net));
 
@@ -53,7 +48,7 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> Vec<u8> {
         ),
     ];
     if !filter.is_empty() {
-        facts.push(("matching", filter.join(", ")));
+        facts.push(("matching", filter.to_string()));
     }
     sheet.masthead(
         "Network sweep",
@@ -95,7 +90,7 @@ pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> Vec<u8> {
 }
 
 /// What answered, and what the makers say, in a sentence or three.
-fn summary(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> String {
+fn summary(hosts: &Hosts, subnet: &Subnet, filter: &str) -> String {
     let count = |want: fn(&Vendor) -> bool| hosts.rows.values().filter(|h| want(&h.vendor)).count();
     let known = count(|vendor| matches!(vendor, Vendor::Known(_)));
     let randomized = count(|vendor| *vendor == Vendor::Randomized);
@@ -144,8 +139,7 @@ fn summary(hosts: &Hosts, subnet: &Subnet, filter: &[String]) -> String {
     if !kept.is_empty() {
         let shown = hosts.rows.values().filter(|h| kept.keeps(h)).count();
         text.push_str(&format!(
-            " The table lists the {shown} that match \"{}\".",
-            filter.join(", ")
+            " The table lists the {shown} that match \"{filter}\"."
         ));
     }
     text
@@ -193,7 +187,7 @@ mod tests {
     fn sums_up_what_answered() {
         let (hosts, subnet) = swept();
         assert_eq!(
-            summary(&hosts, &subnet, &["doorcam".into()]),
+            summary(&hosts, &subnet, "doorcam"),
             "80 of the 254 addresses on 192.168.1.0/24 answered. Of those, 26 are named by their \
              maker, 27 use a randomized MAC (usually a phone or laptop keeping its real one \
              private), and 27 have a maker the registry doesn't list. 11 ignored the ping but \
@@ -205,7 +199,7 @@ mod tests {
     #[test]
     fn writes_a_report_of_every_device() {
         let (hosts, subnet) = swept();
-        let file = String::from_utf8_lossy(&document(&hosts, &subnet, &[])).to_string();
+        let file = String::from_utf8_lossy(&document(&hosts, &subnet, "")).to_string();
         assert!(file.starts_with("%PDF"));
         assert!(file.contains("(192.168.1.0/24)"));
         assert!(file.contains("(doorcam.local)"));

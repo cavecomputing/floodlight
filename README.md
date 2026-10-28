@@ -76,13 +76,15 @@ plugged in and all you have is the MAC on its label.
 floodlight sweep                    # the subnet this machine is on
 floodlight sweep 192.168.1.0/24     # a subnet, or an address for its /24
 floodlight sweep --plain            # print the table and exit
-floodlight sweep --filter 2c:a5:9c,192.168.1.10-20   # print only the matching rows
+floodlight sweep --filter 2c:a5:9c,192.168.1.10-20   # open with only the matching rows
 floodlight sweep --report lan.pdf   # write it as a PDF report (see --report)
 ```
 
-On screen: type to filter (an address fragment, a MAC with or without separators, a maker, a
-name), ↑↓ to move, **enter** copies the address, **tab** copies the MAC, **^r** sweeps again,
-**esc** clears, **^c** quits. The colours are your terminal's own.
+On screen: type to filter (an address fragment, a whole address, a range like `192.168.1.10-20`
+or a subnet like `192.168.1.0/28`, a MAC or its first bytes with or without separators, a maker,
+a name; separate several with commas to see the rows matching any of them), ↑↓ to move,
+**enter** copies the address, **tab** copies the MAC, **^r** sweeps again, **esc** clears, **^c**
+quits. The colours are your terminal's own.
 
 Needs no root: hosts are found with the system `ping` and the OS's ARP table, names with mDNS and
 reverse DNS, makers from the IEEE registry built into the binary. Linux, macOS and Windows.

@@ -144,10 +144,10 @@ impl Query {
     }
 }
 
-/// What `--filter` keeps: the rows matching any of its terms. An address, a range
-/// (`192.168.1.10-20` or `192.168.1.10-192.168.1.20`) or a subnet (`192.168.1.0/28`) keeps those
-/// addresses exactly; anything else is a fragment matched the way the prompt matches (a MAC or
-/// its first bytes, a maker, a name).
+/// What `--filter` and the screen's prompt keep: the rows matching any of the comma-separated
+/// terms. An address, a range (`192.168.1.10-20` or `192.168.1.10-192.168.1.20`) or a subnet
+/// (`192.168.1.0/28`) keeps those addresses exactly; anything else is a fragment of an address, a
+/// MAC (so its first bytes find a maker's devices), a maker or a name.
 pub struct Filter {
     terms: Vec<Term>,
 }
@@ -158,10 +158,10 @@ enum Term {
 }
 
 impl Filter {
-    pub fn new(typed: &[String]) -> Filter {
+    pub fn new(typed: &str) -> Filter {
         let terms = typed
-            .iter()
-            .map(|term| term.trim())
+            .split(',')
+            .map(str::trim)
             .filter(|term| !term.is_empty())
             .map(|term| match addresses(term) {
                 Some((first, last)) => Term::Addresses(first, last),
@@ -176,11 +176,18 @@ impl Filter {
     }
 
     pub fn keeps(&self, host: &Host) -> bool {
-        self.terms.is_empty()
-            || self.terms.iter().any(|term| match term {
-                Term::Addresses(first, last) => (*first..=*last).contains(&host.ip),
-                Term::Fragment(query) => host.hit(query).is_some(),
-            })
+        self.is_empty() || self.hit(host).is_some()
+    }
+
+    /// Where the first term that matches the row matches it. An address term lights the whole
+    /// address.
+    pub fn hit(&self, host: &Host) -> Option<Hit> {
+        self.terms.iter().find_map(|term| match term {
+            Term::Addresses(first, last) => (*first..=*last)
+                .contains(&host.ip)
+                .then(|| Hit::new(Column::Ip, 0, host.ip.to_string().len())),
+            Term::Fragment(query) => host.hit(query),
+        })
     }
 }
 
@@ -373,33 +380,31 @@ mod tests {
 
     #[test]
     fn filters_by_address_range_and_subnet() {
-        let keeps = |terms: &[&str]| {
-            let terms: Vec<String> = terms.iter().map(|t| t.to_string()).collect();
-            Filter::new(&terms).keeps(&camera())
-        };
-        assert!(keeps(&[]));
-        assert!(keeps(&["192.168.1.108"]));
+        let keeps = |typed: &str| Filter::new(typed).keeps(&camera());
+        assert!(keeps(""));
+        assert!(keeps("192.168.1.108"));
         // A whole address is that address, not a fragment of .1.10x.
-        assert!(!keeps(&["192.168.1.10"]));
-        assert!(keeps(&["192.168.1.100-110"]));
-        assert!(keeps(&["192.168.1.100 - 192.168.1.120"]));
-        assert!(!keeps(&["192.168.1.1-20"]));
-        assert!(keeps(&["192.168.1.96/28"]));
-        assert!(!keeps(&["192.168.1.0/26"]));
+        assert!(!keeps("192.168.1.10"));
+        assert!(keeps("192.168.1.100-110"));
+        assert!(keeps("192.168.1.100 - 192.168.1.120"));
+        assert!(!keeps("192.168.1.1-20"));
+        assert!(keeps("192.168.1.96/28"));
+        assert!(!keeps("192.168.1.0/26"));
     }
 
     #[test]
     fn filters_by_mac_maker_or_name_and_any_term() {
-        let keeps = |terms: &[&str]| {
-            let terms: Vec<String> = terms.iter().map(|t| t.to_string()).collect();
-            Filter::new(&terms).keeps(&camera())
-        };
-        assert!(keeps(&["2C-A5-9C"]));
-        assert!(keeps(&["2ca59c0b3d57"]));
-        assert!(keeps(&["doorcam"]));
-        assert!(!keeps(&["aa:bb:cc", "192.168.1.5"]));
-        assert!(keeps(&["aa:bb:cc", "hikvision"]));
-        assert!(keeps(&["  ", "hikvision"]));
+        let keeps = |typed: &str| Filter::new(typed).keeps(&camera());
+        assert!(keeps("2C-A5-9C"));
+        assert!(keeps("2ca59c0b3d57"));
+        assert!(keeps("doorcam"));
+        assert!(!keeps("aa:bb:cc,192.168.1.5"));
+        assert!(keeps("aa:bb:cc,hikvision"));
+        assert!(keeps("  ,hikvision"));
+        assert_eq!(
+            Filter::new("192.168.1.100-110").hit(&camera()),
+            Some(Hit::new(Column::Ip, 0, 13))
+        );
     }
 
     #[test]

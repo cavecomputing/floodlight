@@ -1,4 +1,4 @@
-//! The tables printed to stdout for `--plain` and `--filter`: the same sweep, survey, speed test or
+//! The tables printed to stdout for `--plain`: the same sweep, survey, speed test or
 //! pings, no screen,
 //! so it works in a pipe or a script.
 
@@ -17,7 +17,7 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-pub fn run(runtime: &Runtime, subnet: Subnet, filter: &[String]) -> anyhow::Result<()> {
+pub fn run(runtime: &Runtime, subnet: Subnet, filter: &str) -> anyhow::Result<()> {
     let hosts = sweep::finished(runtime, subnet.net);
     let filter = Filter::new(filter);
     let shown: Vec<_> = hosts

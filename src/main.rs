@@ -46,11 +46,11 @@ enum Mode {
         /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
         /// Defaults to the one this machine is on.
         subnet: Option<String>,
-        /// Keep only the matching hosts and print them (or put them in the --report), then exit.
+        /// Show only the hosts matching any of these terms (the screen opens with them typed).
         /// An address, a range (192.168.1.10-20) or a subnet (192.168.1.0/28) matches those
-        /// addresses; anything else matches a MAC or its first bytes, a maker or a name. Repeat
-        /// it or separate with commas to keep hosts matching any of them.
-        #[arg(long, alias = "find", value_name = "TERM", value_delimiter = ',')]
+        /// addresses; anything else matches part of an address, a MAC or its first bytes, a
+        /// maker or a name. Separate them with commas or repeat the option.
+        #[arg(long, alias = "find", value_name = "TERMS")]
         filter: Vec<String>,
     },
     /// Survey the WiFi here: every network heard, its signal and how the channels overlap.
@@ -158,13 +158,14 @@ fn main() -> anyhow::Result<()> {
     match args.mode {
         Mode::Sweep { subnet, filter } => {
             let subnet = scan::subnet::choose(subnet.as_deref())?;
+            let filter = filter.join(", ");
             if let Some(path) = &args.report {
                 return report::sweep::write(&runtime, subnet, &filter, path);
             }
-            if args.plain || !filter.is_empty() {
+            if args.plain {
                 return ui::plain::run(&runtime, subnet, &filter);
             }
-            ui::app::run(&runtime, subnet)
+            ui::app::run(&runtime, subnet, filter)
         }
         Mode::Wireless { scan_for } => {
             if let Some(path) = &args.report {
