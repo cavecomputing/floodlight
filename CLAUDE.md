@@ -2,12 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The app is **Floodlight**, a terminal tool written in Rust. Each feature is a flag. `--sweep`
+The app is **Floodlight**, a terminal tool written in Rust. Each feature is a mode, typed as a word. `sweep`
 sweeps a subnet and shows every address that answered with its MAC, maker and name, under a prompt
 that filters the rows as you type, so a camera or switch you just plugged in is found by the MAC
-on its label (or the other way round). `--wireless` lists the WiFi networks in earshot and how
-their channels overlap. `--speedtest` measures the internet connection's download, upload, latency
-and jitter against Cloudflare. `--ping` pings up to five hosts (the gateway by default) over and over,
+on its label (or the other way round). `wireless` lists the WiFi networks in earshot and how
+their channels overlap. `speedtest` measures the internet connection's download, upload, latency
+and jitter against Cloudflare. `ping` pings up to five hosts (the gateway by default) over and over,
 graphing every round trip and counting the ones lost. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
@@ -117,20 +117,20 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
 ## Build / run / test
 
 ```bash
-cargo run                              # build (debug) and print the help: every feature is a flag
-cargo run -- --ping --help             # one mode's own options
-cargo run -- --sweep                   # sweep the subnet this machine is on
-cargo run -- --sweep 192.168.1.0/24    # sweep that subnet (everything after -- goes to the app)
-cargo run -- --sweep --plain           # print the table and exit (for pipes, scripts, a quick look)
-cargo run -- --sweep --find 3d:57      # print only the rows matching an ip, mac, maker or name fragment
-cargo run -- --wireless                # the WiFi networks heard here and how their channels overlap
-cargo run -- --wireless --plain        # the same as a table on stdout
-cargo run -- --speedtest               # download, upload, latency and jitter against Cloudflare
-cargo run -- --speedtest --count 3 --wait 10 --plain  # three runs, 10 s apart, printed
-cargo run -- --ping                    # ping the gateway until you quit (--count 0, the default)
-cargo run -- --ping 1.1.1.1 --count 20 --wait 250 --plain  # twenty pings, 250 ms apart, printed
-cargo run -- --sweep --report out.pdf  # one sweep written as a PDF report, then exit (--wireless too)
-cargo run -- --wireless --report out.pdf --scan-for 20  # scan 20 s before writing (default 10)
+cargo run                              # build (debug) and print the help: the modes and the shared options
+cargo run -- ping --help               # one mode's own options
+cargo run -- sweep                     # sweep the subnet this machine is on
+cargo run -- sweep 192.168.1.0/24      # sweep that subnet (everything after -- goes to the app)
+cargo run -- sweep --plain             # print the table and exit (for pipes, scripts, a quick look)
+cargo run -- sweep --find 3d:57        # print only the rows matching an ip, mac, maker or name fragment
+cargo run -- wireless                  # the WiFi networks heard here and how their channels overlap
+cargo run -- wireless --plain          # the same as a table on stdout
+cargo run -- speedtest                 # download, upload, latency and jitter against Cloudflare
+cargo run -- speedtest --count 3 --wait 10 --plain    # three runs, 10 s apart, printed
+cargo run -- ping                      # ping the gateway until you quit (--count 0, the default)
+cargo run -- ping 1.1.1.1 --count 20 --wait 250 --plain    # twenty pings, 250 ms apart, printed
+cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
+cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
 
 cargo test                        # run every test
 cargo test mac                    # run only tests whose name contains "mac"
@@ -144,7 +144,7 @@ What each OS needs before the first build: Rust (rustup) and a C compiler (`base
 `build-essential` on Ubuntu, Xcode's command line tools on macOS, Visual Studio Build Tools with
 the "Desktop development with C++" workload on Windows). At run time: `ping`, and `ip` (iproute2)
 or `arp`, which every OS has; on Linux `wl-copy` (wl-clipboard), `xclip` or `xsel` for copying.
-For `--wireless`: `nmcli` or `iw` on Linux, nothing extra on Windows (it asks the wifi service through windows-sys); on macOS the build compiles a
+For `wireless`: `nmcli` or `iw` on Linux, nothing extra on Windows (it asks the wifi service through windows-sys); on macOS the build compiles a
 Swift helper with `swiftc` (part of Xcode's command line tools).
 
 Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/bin`.
@@ -172,12 +172,11 @@ suffix (`v0.2.0-rc.1`) becomes a pre-release.
 
 ## Architecture
 
-Each feature is a flag, and the command alone prints the help listing them. In clap each mode is
-a subcommand *named* `--sweep`, `--ping` and so on, so `floodlight --ping --help` shows only that
-mode's options while the command line keeps its flag shape; `--plain` and `--report` are global,
-shared by every mode. The help's colours are `HELP` in `ui/theme.rs` (clap drops them when piped).
+Each feature is a mode, a clap subcommand typed as a plain word (`floodlight ping`), and the
+command alone prints the help listing them. `floodlight ping --help` shows only that mode's
+options; `--plain` and `--report` are global, shared by every mode. The help's colours are `HELP` in `ui/theme.rs` (clap drops them when piped).
 
-`--sweep`: `floodlight --sweep [subnet]` opens the screen, starts the sweep in the
+`sweep`: `floodlight sweep [subnet]` opens the screen, starts the sweep in the
 background, and fills the table as answers come in. Ctrl+R sweeps again.
 
 `--report FILE`: with either feature, runs it once, writes `FILE` as a PDF and exits. The PDF is
@@ -186,13 +185,13 @@ has, so nothing is embedded. It follows the design system's print documents (the
 cream Letter page, yellow edges, small-capital headings, rounded tables) with **no branding**: no
 name or logo anywhere on it.
 
-`--wireless`: `floodlight --wireless` opens a screen of every network heard and keeps asking the
+`wireless`: `floodlight wireless` opens a screen of every network heard and keeps asking the
 OS's own tool for the list in the background, a second after each answer, keeping the rows up
 meanwhile; `wifi/trend.rs` keeps every access point heard and tracks its signal across scans.
 Tab cycles channel, signal (ranked once when chosen, so rows hold still) and name order;
 Ctrl+R forgets them and starts over. `--plain` prints one scan.
 
-`--speedtest`: `floodlight --speedtest` opens a screen with a row a run and fills it in as the run
+`speedtest`: `floodlight speedtest` opens a screen with a row a run and fills it in as the run
 goes: latency and jitter from 20 empty requests, then Cloudflare's own page's sequence of
 downloads and uploads taking turns as they grow (100 kB up to 250 MB), each direction stopping once
 every request of a size takes over a second, reporting the 90th percentile. From 10 MB up a
@@ -216,10 +215,10 @@ cookies kept, no gzip. Cloudflare publishes no limits or terms for this; they ha
 without notice (the server-timing format, the referer), so check its own engine when it breaks.
 `--count N` runs it N times, `--wait SECONDS` apart (5 by default); Ctrl+R runs the same again once it is done.
 
-`--ping [HOST]...`: pings up to five hosts (names or IPv4 addresses; the gateway from the OS's
+`ping [HOST]...`: pings up to five hosts (names or IPv4 addresses; the gateway from the OS's
 route table when none is given), each on a thread of its own with its own socket, all sending
 their `Ping`s (tagged with the host's index) into one channel, one echo at a time: up to 2 s for the reply, then `--wait`
-**milliseconds** (500 by default; the same flag is seconds for `--speedtest`) before the next.
+**milliseconds** (500 by default; the same flag is seconds for `speedtest`) before the next.
 `--count N` stops after N; 0, the default, pings until you quit, and `--report` (which needs an
 end) takes 10 unless told. No root and no Administrator: Linux and macOS send through an ICMP
 datagram socket (socket2), which Linux allows when `net.ipv4.ping_group_range` covers the user
@@ -327,7 +326,7 @@ at the bottom of the file they test.
 - **Startup is near-instant and the screen never waits for the network.** The first frame draws
   before anything has answered; rows fill in. The maker registry is parsed inside the sweep task,
   not on the screen's thread. Dropping the sweep's receiver (Ctrl+R) ends the old sweep quietly.
-- **No privileges.** `--ping` uses the unprivileged ICMP datagram socket (Linux, macOS) and
+- **No privileges.** `ping` uses the unprivileged ICMP datagram socket (Linux, macOS) and
   `IcmpSendEcho` (Windows), never a raw socket. Hosts are found with the system `ping` (on Windows `IcmpSendEcho`, since `ping.exe`
   prints in the system's language) plus a one-byte UDP datagram to the
   discard port (which makes the OS resolve the MAC even for hosts that ignore pings), and the MACs
@@ -336,7 +335,7 @@ at the bottom of the file they test.
   camera; the mDNS PTR query (with the unicast-response bit, so the reply comes to our socket)
   is what devices answer. Both run at once; mDNS wins.
 - **macOS hides WiFi names from terminal tools** (since 14.4: `<redacted>`). Only an app the user
-  has allowed Location sees them, so `--wireless` on macOS runs `helper.swift` as a background
+  has allowed Location sees them, so `wireless` on macOS runs `helper.swift` as a background
   app: the binary carries it, writes it as `<WIFI_HELPER>.app` into the data folder (ad-hoc signed,
   rewritten only when it changes), starts it with `open` so macOS treats it as its own app, and
   reads the list it writes to a temp file. A rewritten helper may need Location allowed again.

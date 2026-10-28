@@ -169,7 +169,7 @@ impl Runs {
 }
 
 /// How much one round trip differs from the next, on average: the average step between
-/// neighbours. `--ping` measures it the same way.
+/// neighbours. `ping` measures it the same way.
 pub fn jitter(round_trips: &[f32]) -> Option<f32> {
     let steps: Vec<f32> = round_trips
         .windows(2)

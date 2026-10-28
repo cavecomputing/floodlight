@@ -14,15 +14,16 @@ crowd each other, so you can pick the quietest one. And it tests the internet co
 download, upload, latency and jitter against Cloudflare. And it pings up to five hosts over and over,
 graphing every round trip and counting the ones lost.
 
-Each feature is a mode with its own flag. `floodlight` on its own lists the modes and the options
-they share; `floodlight --<mode> --help` shows that mode's own options.
+Each feature is a mode, typed as a word: `floodlight ping`, `floodlight speedtest`. `floodlight`
+on its own lists the modes and the options they share; `floodlight <mode> --help` shows that
+mode's own options.
 
 | Mode | What it does |
 |---|---|
-| [`--sweep`](#--sweep) | every address on a subnet that answered, with MAC, maker and name |
-| [`--wireless`](#--wireless) | the WiFi networks heard, their channels and how they overlap |
-| [`--speedtest`](#--speedtest) | download, upload, latency and jitter, once or `--count` times |
-| [`--ping`](#--ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
+| [`sweep`](#sweep) | every address on a subnet that answered, with MAC, maker and name |
+| [`wireless`](#wireless) | the WiFi networks heard, their channels and how they overlap |
+| [`speedtest`](#speedtest) | download, upload, latency and jitter, once or `--count` times |
+| [`ping`](#ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
 
 | Shared option | What it does |
 |---|---|
@@ -31,7 +32,7 @@ they share; `floodlight --<mode> --help` shows that mode's own options.
 
 ```bash
 floodlight                    # the modes and the shared options
-floodlight --ping --help      # --ping's own options: the hosts, --count, --wait
+floodlight ping --help        # ping's own options: the hosts, --count, --wait
 ```
 
 The help is in colour in a terminal and plain when piped or when `NO_COLOR` is set.
@@ -46,13 +47,13 @@ Windows).
 
 ```bash
 cargo install --git https://github.com/cavecomputing/floodlight
-floodlight --sweep
+floodlight sweep
 ```
 
 `cargo install` builds the release binary and puts it in `~/.cargo/bin`, which rustup already
 added to your `PATH`. Run the same command again to update.
 
-## --sweep
+## sweep
 
 Sweeps a subnet and shows everything that answered: address, MAC, maker and name. Type part of
 any of them to find the one you want. Made for the moment a camera or switch has just been
@@ -67,11 +68,11 @@ plugged in and all you have is the MAC on its label.
 ```
 
 ```bash
-floodlight --sweep                  # the subnet this machine is on
-floodlight --sweep 192.168.1.0/24   # a subnet, or an address for its /24
-floodlight --sweep --plain          # print the table and exit
-floodlight --sweep --find 3d:57     # print only the matching rows
-floodlight --sweep --report lan.pdf # write it as a PDF report (see --report)
+floodlight sweep                    # the subnet this machine is on
+floodlight sweep 192.168.1.0/24     # a subnet, or an address for its /24
+floodlight sweep --plain            # print the table and exit
+floodlight sweep --find 3d:57       # print only the matching rows
+floodlight sweep --report lan.pdf   # write it as a PDF report (see --report)
 ```
 
 On screen: type to filter (an address fragment, a MAC with or without separators, a maker, a
@@ -81,7 +82,7 @@ name), ↑↓ to move, **enter** copies the address, **tab** copies the MAC, **^
 Needs no root: hosts are found with the system `ping` and the OS's ARP table, names with mDNS and
 reverse DNS, makers from the IEEE registry built into the binary. Linux, macOS and Windows.
 
-## --wireless
+## wireless
 
 Lists every WiFi network this machine can hear, with its channel, width and signal, how many
 neighbours share its channel (they take turns) or overlap it from a nearby one (they talk over
@@ -98,9 +99,9 @@ overlap. The top line names the quietest channel in each band.
 ```
 
 ```bash
-floodlight --wireless           # the screen, scanning until you quit; ^r starts over
-floodlight --wireless --plain   # print one scan's table and exit
-floodlight --wireless --report wifi.pdf   # write it as a PDF report
+floodlight wireless             # the screen, scanning until you quit; ^r starts over
+floodlight wireless --plain     # print one scan's table and exit
+floodlight wireless --report wifi.pdf     # write it as a PDF report
 ```
 
 The screen keeps scanning, a second after each scan is in, so you can walk around with it. Every
@@ -120,7 +121,7 @@ macOS ties names to). If you said no, allow `Floodlight WiFi` under System Setti
 Security › Location Services. A width the OS doesn't report (nmcli) shows `—` and counts
 as 20 MHz. Recent Windows may refuse to list networks until the terminal has location access.
 
-## --speedtest
+## speedtest
 
 Tests the internet connection against [Cloudflare's speed test](https://speed.cloudflare.com), the
 way its own page does: 20 small requests for latency (the middle one) and jitter (how much one
@@ -139,11 +140,11 @@ ones that never fill the link don't drag it down.
 ```
 
 ```bash
-floodlight --speedtest                     # the screen, one run; ^r runs it again
-floodlight --speedtest --count 6           # six runs, 5 seconds apart
-floodlight --speedtest --count 6 --wait 60 # six runs, a minute apart
-floodlight --speedtest --plain             # print each run's row as it ends
-floodlight --speedtest --count 3 --report speed.pdf   # write them as a PDF report
+floodlight speedtest                       # the screen, one run; ^r runs it again
+floodlight speedtest --count 6             # six runs, 5 seconds apart
+floodlight speedtest --count 6 --wait 60   # six runs, a minute apart
+floodlight speedtest --plain               # print each run's row as it ends
+floodlight speedtest --count 3 --report speed.pdf     # write them as a PDF report
 ```
 
 With `--count`, the screen also graphs download, upload and latency across the runs, side by side
@@ -152,7 +153,7 @@ under the table, so a line that slows down over the afternoon shows as a falling
 It talks to Cloudflare over HTTPS by itself, so nothing needs installing. A test moves a few
 hundred megabytes on a fast line.
 
-## --ping
+## ping
 
 Pings up to five hosts side by side, over and over, and shows every reply as it comes back, the
 ones lost (and why: `timed out`, `unreachable`), and each host's totals so far: sent, lost, and the
@@ -173,16 +174,16 @@ the gaps. With no host it pings this machine's gateway (its router).
 ```
 
 ```bash
-floodlight --ping                       # the gateway, until you quit; ^r starts over
-floodlight --ping 1.1.1.1               # a host by address or by name
-floodlight --ping 192.168.1.1 1.1.1.1   # up to five hosts at once, a graph each
-floodlight --ping 1.1.1.1 --count 100   # a hundred pings, then stop (0 means until you quit)
-floodlight --ping --wait 1000           # a second between pings (500 ms by default)
-floodlight --ping 1.1.1.1 --count 20 --plain       # print each ping as it comes back, then the totals
-floodlight --ping 1.1.1.1 --count 50 --report ping.pdf   # write them as a PDF report
+floodlight ping                         # the gateway, until you quit; ^r starts over
+floodlight ping 1.1.1.1                 # a host by address or by name
+floodlight ping 192.168.1.1 1.1.1.1     # up to five hosts at once, a graph each
+floodlight ping 1.1.1.1 --count 100     # a hundred pings, then stop (0 means until you quit)
+floodlight ping --wait 1000             # a second between pings (500 ms by default)
+floodlight ping 1.1.1.1 --count 20 --plain         # print each ping as it comes back, then the totals
+floodlight ping 1.1.1.1 --count 50 --report ping.pdf     # write them as a PDF report
 ```
 
-`--wait` is in milliseconds here (in seconds for `--speedtest`), counted from one reply, or a
+`--wait` is in milliseconds here (in seconds for `speedtest`), counted from one reply, or a
 reply given up on after 2 seconds, to the next ping. Each round trip is timed to a fraction of a
 millisecond on every OS (Windows' own `ping` only counts whole ones). IPv4 only for now.
 
@@ -192,7 +193,7 @@ if yours doesn't, Floodlight says so and gives the one `sysctl` line that allows
 
 ## --report
 
-Add `--report FILE` to `--sweep`, `--wireless`, `--speedtest` or `--ping` to run it, write it to `FILE` as
+Add `--report FILE` to `sweep`, `wireless`, `speedtest` or `ping` to run it, write it to `FILE` as
 a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
@@ -221,7 +222,7 @@ anywhere.
 ```bash
 git clone https://github.com/cavecomputing/floodlight.git
 cd floodlight
-cargo run -- --sweep        # a debug build, straight from the source
+cargo run -- sweep          # a debug build, straight from the source
 cargo install --path .      # or install it, like the quick start does
 ```
 

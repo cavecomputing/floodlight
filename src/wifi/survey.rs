@@ -188,7 +188,7 @@ fn helper_app() -> std::io::Result<PathBuf> {
 /// The bundle's Info.plist: a background app (no Dock icon) that says why it wants Location.
 fn info_plist() -> String {
     let why = format!(
-        "macOS shows WiFi network names only to apps allowed Location. {} --wireless needs them \
+        "macOS shows WiFi network names only to apps allowed Location. {} wireless needs them \
          to name the networks it hears; it never reads where you are.",
         brand::BIN
     );

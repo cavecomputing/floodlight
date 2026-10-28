@@ -15,10 +15,9 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Looks at the network around this machine. Pick a mode with its flag; `--<mode> --help` shows
-/// that mode's own options.
-// Each mode is a clap subcommand named as a flag, so `--ping --help` has a page of its own while
-// the command line keeps the `--ping` shape.
+/// Looks at the network around this machine. Pick a mode; `<mode> --help` shows that mode's own
+/// options.
+// Each mode is a clap subcommand, so `ping --help` has a page of its own.
 #[derive(Parser)]
 #[command(name = brand::BIN, version, about, arg_required_else_help = true)]
 #[command(
@@ -41,7 +40,6 @@ struct Args {
 #[derive(Subcommand)]
 enum Mode {
     /// Sweep a subnet: every address that answers, with its MAC, maker and name.
-    #[command(name = "--sweep")]
     Sweep {
         /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
         /// Defaults to the one this machine is on.
@@ -51,7 +49,6 @@ enum Mode {
         find: Option<String>,
     },
     /// Survey the WiFi here: every network heard, its signal and how the channels overlap.
-    #[command(name = "--wireless")]
     Wireless {
         /// With --report: how many seconds to keep scanning before writing, so weak networks
         /// that answer late make the report.
@@ -59,7 +56,6 @@ enum Mode {
         scan_for: u64,
     },
     /// Test the internet connection against Cloudflare: download, upload, latency and jitter.
-    #[command(name = "--speedtest")]
     Speedtest {
         /// How many times to run it.
         #[arg(long, value_name = "N", default_value_t = 1)]
@@ -70,7 +66,6 @@ enum Mode {
     },
     /// Ping up to five hosts over and over: every round trip, the ones lost, min, average, max
     /// and jitter.
-    #[command(name = "--ping")]
     Ping {
         /// Up to five names or IPv4 addresses, pinged side by side. The gateway when none is given.
         #[arg(value_name = "HOST", num_args = 0..=5)]
@@ -110,7 +105,7 @@ fn main() -> anyhow::Result<()> {
         }
         Mode::Speedtest { count, wait } => {
             if count == 0 {
-                bail!("--count for --speedtest is how many runs: 1 or more");
+                bail!("--count for speedtest is how many runs: 1 or more");
             }
             let wait = Duration::from_secs(wait);
             if let Some(path) = &args.report {
@@ -161,7 +156,7 @@ mod tests {
         let args = Args::try_parse_from([
             brand::BIN,
             "--plain",
-            "--ping",
+            "ping",
             "1.1.1.1",
             "192.168.1.1",
             "--wait",
@@ -178,12 +173,12 @@ mod tests {
             } if hosts.len() == 2
         ));
         let six = [
-            "--ping", "1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6",
+            "ping", "1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6",
         ];
         assert!(Args::try_parse_from([brand::BIN].into_iter().chain(six)).is_err());
-        assert!(Args::try_parse_from([brand::BIN, "--wireless", "--count", "3"]).is_err());
+        assert!(Args::try_parse_from([brand::BIN, "wireless", "--count", "3"]).is_err());
         assert!(
-            Args::try_parse_from([brand::BIN, "--sweep", "--report", "a.pdf", "--plain"]).is_err()
+            Args::try_parse_from([brand::BIN, "sweep", "--report", "a.pdf", "--plain"]).is_err()
         );
     }
 }

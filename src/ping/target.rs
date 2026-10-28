@@ -22,8 +22,8 @@ impl Target {
 
 pub fn choose(typed: Option<&str>) -> anyhow::Result<Target> {
     let Some(text) = typed else {
-        let ip = gateway()
-            .context("no gateway was found; give the host to ping, like --ping 1.1.1.1")?;
+        let ip =
+            gateway().context("no gateway was found; give the host to ping, like ping 1.1.1.1")?;
         return Ok(Target {
             ip,
             name: Some("gateway".to_string()),

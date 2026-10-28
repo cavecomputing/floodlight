@@ -14,7 +14,7 @@ pub async fn probe(ip: Ipv4Addr, wait: Duration) -> Option<f32> {
     poke(ip).await;
     if cfg!(windows) {
         // Windows' `ping` prints in the system's language (`Zeit=3ms`, `temps=3 ms`) and code
-        // page, so there is no reading it everywhere. Its ping call, which --ping uses, answers
+        // page, so there is no reading it everywhere. Its ping call, which the ping mode uses, answers
         // in numbers.
         let echo = tokio::task::spawn_blocking(move || Pinger::new()?.echo(ip, 0, wait));
         return Some(echo.await.ok()?.ok()?.as_secs_f32() * 1000.0);
