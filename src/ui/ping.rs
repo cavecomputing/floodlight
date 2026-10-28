@@ -126,11 +126,8 @@ impl Screen {
             .map(|ping| ping.reply.as_ref().ok().copied())
             .collect();
         let title = match self.targets.len() {
-            1 => "latency · ms · a gap is a ping lost".to_string(),
-            _ => format!(
-                "{} · latency · ms · a gap is a ping lost",
-                self.targets[i].label()
-            ),
+            1 => "latency · ms · × a ping lost".to_string(),
+            _ => format!("{} · latency · ms · × a ping lost", self.targets[i].label()),
         };
         graph(
             frame,
@@ -138,6 +135,7 @@ impl Screen {
             &title,
             &round_trips,
             roles.host(i),
+            true,
             roles,
         );
         let hints: &[&str] = if self.targets.len() > 1 {

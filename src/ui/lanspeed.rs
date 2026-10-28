@@ -118,6 +118,7 @@ impl Screen {
                 &format!("{} · Mbps · an interval a dot", direction.name()),
                 &self.runs.intervals(*direction),
                 ink,
+                false,
                 roles,
             );
         }
@@ -356,6 +357,7 @@ impl Serving {
             "received · Mbps · an interval a dot",
             &self.tests.intervals(Direction::Upload),
             roles.address(),
+            false,
             roles,
         );
         graph(
@@ -364,6 +366,7 @@ impl Serving {
             "sent · Mbps · an interval a dot",
             &self.tests.intervals(Direction::Download),
             roles.good(),
+            false,
             roles,
         );
         status_bar::draw(

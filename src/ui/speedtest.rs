@@ -174,6 +174,7 @@ impl Screen {
             "download · Mbps",
             &each(Run::download),
             roles.good(),
+            false,
             roles,
         );
         graph(
@@ -182,6 +183,7 @@ impl Screen {
             "upload · Mbps",
             &each(Run::upload),
             roles.address(),
+            false,
             roles,
         );
         graph(
@@ -190,6 +192,7 @@ impl Screen {
             "latency · ms",
             &each(Run::latency),
             roles.text(),
+            false,
             roles,
         );
     }
