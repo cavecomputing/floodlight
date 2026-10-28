@@ -165,9 +165,8 @@ hundred megabytes on a fast line.
 
 Pings up to five hosts side by side, over and over. Up top is a row a host, marked with a dot in
 its own colour: the average round trip, the minimum, maximum and jitter (how much one differs from
-the next), how many were sent and how many lost. Under it every reply as it comes back, and the
-ones lost (and why: `timed out`, `unreachable`). One graph along the bottom plots every host's
-round trips in its colour, a gap where one was lost, so a link that drops out or slows down shows
+the next), how many were sent and how many lost. Under it one graph, as tall as the window allows, plots every
+host's round trips in its colour, a gap where one was lost, so a link that drops out or slows down shows
 at a glance. Hosts whose round trips are close land on the same spots, so **tab** shows one host
 alone on the graph, then the next, then all of them again. With no host it pings this machine's
 gateway (its router).
@@ -178,11 +177,6 @@ gateway (its router).
   # host                     avg         min         max         jitter      sent    lost
     ● gateway (192.168.1.1)  1.12 ms     0.61 ms     4.80 ms     0.35 ms     42      1 · 2.4%
     ● 1.1.1.1                11.02 ms    9.80 ms     14.10 ms    0.90 ms     42      0 · 0.0%
-
-  # seq     time      host                   latency
-    41      14:05:30  gateway (192.168.1.1)  timed out
-    41      14:05:30  1.1.1.1                10.85 ms
-    42      14:05:32  gateway (192.168.1.1)  1.04 ms
 ```
 
 ```bash

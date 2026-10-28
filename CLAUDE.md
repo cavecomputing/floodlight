@@ -380,7 +380,7 @@ src/
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
-    ping.rs              the ping screen: a row a host, a row a ping, one graph a colour a host
+    ping.rs              the ping screen: a row a host, then one graph a colour a host filling the rest
     trace.rs             the trace screen: how far and where loss starts, a row a hop
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     calc.rs              the subnet printed to the terminal: a row a value

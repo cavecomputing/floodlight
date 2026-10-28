@@ -1,7 +1,6 @@
 //! The ping screen: a row a host up top with its average and totals, marked with a dot in its
-//! own colour, a row a ping (the latest that fit, the lost ones in the warning colour), and one
-//! graph along the bottom with every host's round trips on it in those colours. Same look as the
-//! speed test's screen.
+//! own colour, then one graph filling the rest with every host's round trips on it in those
+//! colours. Same look as the speed test's screen.
 
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
@@ -22,8 +21,6 @@ use std::time::{Duration, Instant};
 const HINTS: [&str; 2] = ["^r start over", "^c quit"];
 /// With several hosts, tab picks one to see alone on the graph.
 const HINTS_SEVERAL: [&str; 3] = ["tab one host", "^r start over", "^c quit"];
-/// Rows the graph plots in: taller than the other screens', since every host shares it.
-const PLOT_ROWS: u16 = 10;
 
 pub fn run(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()> {
     let ips: Vec<Ipv4Addr> = targets.iter().map(|target| target.ip).collect();
@@ -32,7 +29,6 @@ pub fn run(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()>
     let mut screen = Screen {
         events,
         pings: targets.iter().map(|_| Pings::default()).collect(),
-        log: Vec::new(),
         done: false,
         headline: plain::ping_headline(targets, count, wait),
         targets: targets.to_vec(),
@@ -50,8 +46,6 @@ struct Screen {
     events: Receiver<Ping>,
     /// Each host's pings.
     pings: Vec<Pings>,
-    /// Every ping in the order it came back: its host, and where it is in that host's pings.
-    log: Vec<(usize, usize)>,
     /// Every ping asked for is in.
     done: bool,
     headline: String,
@@ -72,11 +66,7 @@ impl Screen {
         loop {
             loop {
                 match self.events.try_recv() {
-                    Ok(ping) => {
-                        let host = &mut self.pings[ping.host].pings;
-                        self.log.push((ping.host, host.len()));
-                        host.push(ping);
-                    }
+                    Ok(ping) => self.pings[ping.host].pings.push(ping),
                     Err(TryRecvError::Disconnected) => break self.done = true,
                     Err(TryRecvError::Empty) => break,
                 }
@@ -101,7 +91,6 @@ impl Screen {
                         if let Ok(events) = pings::start(ips, self.count, wait) {
                             self.events = events;
                             self.pings = ips.iter().map(|_| Pings::default()).collect();
-                            self.log.clear();
                             self.done = false;
                         }
                     }
@@ -114,14 +103,13 @@ impl Screen {
     fn draw(&self, frame: &mut Frame) {
         let roles = &TERMINAL;
         let hosts = self.targets.len() as u16;
-        let [_, head, _, rundown, _, table, graph, rule, bar] = Layout::vertical([
+        // The graph takes every row the hosts leave, so it is as tall as the window allows.
+        let [_, head, _, rundown, graph, rule, bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(hosts + 1),
-            Constraint::Length(1),
             Constraint::Fill(1),
-            Constraint::Length(PLOT_ROWS + 3),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
@@ -135,7 +123,6 @@ impl Screen {
             inset(head),
         );
         self.draw_rundown(frame, rundown, roles);
-        self.draw_table(frame, table, roles);
 
         let round_trips: Vec<Vec<Option<f32>>> = self
             .pings
@@ -233,45 +220,6 @@ impl Screen {
         widths.extend([Constraint::Length(10); 4]);
         widths.extend([Constraint::Length(6), Constraint::Fill(1)]);
         let titles = ["host", "avg", "min", "max", "jitter", "sent", "lost"];
-        ui::comment_table(frame, area, roles, &titles, widths, rows);
-    }
-
-    fn draw_table(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
-        // The latest pings, when there are more than the rows can hold.
-        let room = area.height.saturating_sub(1) as usize;
-        let skipped = self.log.len().saturating_sub(room);
-        // A host column only when there is more than one.
-        let several = self.targets.len() > 1;
-        let rows: Vec<Row<'static>> = self.log[skipped..]
-            .iter()
-            .map(|&(host, at)| {
-                let ping = &self.pings[host].pings[at];
-                let [seq, time, latency] = plain::ping_words(ping);
-                let latency = match ping.reply {
-                    Ok(_) => Span::styled(latency, roles.text()),
-                    Err(_) => Span::styled(latency, roles.warning()),
-                };
-                let mut cells = vec![
-                    Cell::from(Span::styled(seq, roles.muted())),
-                    Cell::from(Span::styled(time, roles.comment())),
-                ];
-                if several {
-                    let label = self.targets[host].label();
-                    cells.push(Cell::from(Span::styled(label, roles.host(host))));
-                }
-                cells.push(Cell::from(latency));
-                Row::new(cells)
-            })
-            .collect();
-        let mut widths = vec![Constraint::Length(6), Constraint::Length(8)];
-        let mut titles = vec!["seq", "time"];
-        if several {
-            let longest = self.targets.iter().map(|target| target.label().len());
-            widths.push(Constraint::Length(longest.max().unwrap_or_default() as u16));
-            titles.push("host");
-        }
-        widths.push(Constraint::Fill(1));
-        titles.push("latency");
         ui::comment_table(frame, area, roles, &titles, widths, rows);
     }
 }
