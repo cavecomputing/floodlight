@@ -267,7 +267,9 @@ it names, and keeps the fields in `FIELDS` (`dns/whois.rs`).
 
 `lanspeed`: `floodlight lanspeed --serve` listens on one port (5201, iperf's, so the same
 firewall rule serves), TCP and UDP both, takes one test at a time (a second client hears `busy`)
-and prints a line a test; `--connect HOST` runs a test against it: a transfer each way in turn
+and shows a row a test served on its own screen (`--plain` prints a line a test); the sending
+end counts what it sends interval by interval too, so the server's row and graph move whichever
+way the data goes. `--connect HOST` runs a test against it: a transfer each way in turn
 (upload, then download; `--upload` or `--download` for one), each for `--time` seconds over
 `--streams` connections (or UDP sockets) at once, the receiving end reporting what arrived every
 `--interval` seconds and a total. The two ends speak their own line protocol (`lanspeed/wire.rs`:
@@ -343,7 +345,8 @@ src/
   lanspeed/              the LAN throughput test, no UI
     wire.rs              what the two ends say: the hello, the server's answer, the report lines, the datagrams
     transfer.rs          sending and receiving over TCP streams and UDP sockets, counted an interval at a time
-    server.rs            --serve: listen on one port, take a test at a time, receive and report or send
+    server.rs            --serve: listen on one port, take a test at a time, receive and report or send;
+                         the Event enum its screen hears and the Tests served so far
     runs.rs              --connect: a run (a transfer each way), the Event enum the screen hears, the medians
   dns/                   DNS lookups and whois, no UI
     servers.rs           which name servers to ask: typed, or the system's (resolv.conf, GetNetworkParams)
@@ -374,7 +377,8 @@ src/
     trace.rs             the trace screen: how far and where loss starts, a row a hop
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     calc.rs              the subnet printed to the terminal: a row a value
-    lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
+    lanspeed.rs          the LAN speed screens: the client's (a row an interval, a total a direction, a
+                         graph a direction) and the server's (a row a test served, a graph each way)
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     graph.rs             the graph the speed test, ping and lanspeed screens share: braille lines
                          joining the points on a round scale, a gap where a value is missing
