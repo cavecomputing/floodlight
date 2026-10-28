@@ -2,6 +2,7 @@
 //! table when asked for plain output, or writes its report).
 
 mod brand;
+mod dns;
 mod os;
 mod ping;
 mod report;
@@ -78,6 +79,30 @@ enum Mode {
         #[arg(long, value_name = "MS", default_value_t = 500)]
         wait: u64,
     },
+    /// Look a name up in DNS: its records, their TTLs, how long the answer took, and whether it
+    /// came from the domain's own name server. An address is looked up for its name.
+    Dns {
+        /// The name to look up, like example.com, or an address for its name (a reverse lookup).
+        name: String,
+        /// The record types to ask for, like a, aaaa, mx, txt, ns, cname, soa, srv, caa or any;
+        /// several with commas. A by default, or PTR for an address.
+        #[arg(long = "type", value_name = "TYPE", value_delimiter = ',')]
+        types: Vec<String>,
+        /// The name servers to ask, by address (a port after a colon) or name; several with
+        /// commas, each asked in turn. The one this machine uses by default.
+        #[arg(long, value_name = "SERVER", value_delimiter = ',')]
+        server: Vec<String>,
+        /// Ask the domain's own name server (found through the usual one) for an authoritative
+        /// answer, past any cache.
+        #[arg(long)]
+        authoritative: bool,
+        /// Ask over TCP instead of UDP.
+        #[arg(long)]
+        tcp: bool,
+        /// Also ask whois who registered the domain, or who holds the address.
+        #[arg(long)]
+        whois: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -138,6 +163,22 @@ fn main() -> anyhow::Result<()> {
             }
             ui::ping::run(&targets, count, wait)
         }
+        Mode::Dns {
+            name,
+            types,
+            server,
+            authoritative,
+            tcp,
+            whois,
+        } => {
+            let lookups = dns::lookup::lookups(&name, &types, &server, authoritative, tcp)?;
+            let whois = whois.then(|| dns::whois::whois(&name));
+            if let Some(path) = &args.report {
+                return report::dns::write(path, &lookups, whois.as_ref());
+            }
+            ui::dns::print(&lookups, whois.as_ref(), args.plain);
+            Ok(())
+        }
     }
 }
 
@@ -180,5 +221,19 @@ mod tests {
         assert!(
             Args::try_parse_from([brand::BIN, "sweep", "--report", "a.pdf", "--plain"]).is_err()
         );
+        let dns = [
+            "dns",
+            "example.com",
+            "--type",
+            "a,mx",
+            "--server",
+            "1.1.1.1",
+            "--whois",
+        ];
+        let args = Args::try_parse_from([brand::BIN].into_iter().chain(dns)).expect("a lookup");
+        assert!(matches!(
+            args.mode,
+            Mode::Dns { ref types, whois: true, .. } if types == &["a", "mx"]
+        ));
     }
 }

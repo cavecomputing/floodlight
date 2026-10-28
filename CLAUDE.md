@@ -8,7 +8,9 @@ that filters the rows as you type, so a camera or switch you just plugged in is 
 on its label (or the other way round). `wireless` lists the WiFi networks in earshot and how
 their channels overlap. `speedtest` measures the internet connection's download, upload, latency
 and jitter against Cloudflare. `ping` pings up to five hosts (the gateway by default) over and over,
-graphing every round trip and counting the ones lost. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+graphing every round trip and counting the ones lost. `dns` looks a name up like dig, from the
+system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
+registered it. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -129,6 +131,8 @@ cargo run -- speedtest                 # download, upload, latency and jitter ag
 cargo run -- speedtest --count 3 --wait 10 --plain    # three runs, 10 s apart, printed
 cargo run -- ping                      # ping the gateway until you quit (--count 0, the default)
 cargo run -- ping 1.1.1.1 --count 20 --wait 250 --plain    # twenty pings, 250 ms apart, printed
+cargo run -- dns example.com --type a,mx --server 1.1.1.1    # records, timed, authoritative or not
+cargo run -- dns example.com --whois --report out.pdf        # with who registered it, as a PDF
 cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
 cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
 
@@ -227,6 +231,17 @@ timed with `Instant` around the send and the reply, since Windows only reports w
 milliseconds. Ctrl+R forgets the pings and starts over. The screen and the report give each host
 a graph of its own (three to a row on screen); the report has no table of every ping.
 
+`dns NAME`: asks for the `--type`s (A, or PTR for an address, by default) from each `--server`
+(the first one in `/etc/resolv.conf` on Linux and macOS, `GetNetworkParams` on Windows), one
+question at a time over UDP, or TCP with `--tcp` or when the UDP answer comes back truncated. The
+messages are built and read by hickory-proto; the sockets are std's own, timed with `Instant`.
+The AA flag says authoritative or not; `--authoritative` finds the zone's first NS (walking up the
+name) through the usual server and asks it instead. Its answer is printed and stays in the
+terminal like dig's, with no screen: styled lines (`ui/dns.rs`) written through crossterm, plain
+under `--plain`, a pipe or `NO_COLOR`. `--whois` asks whois.iana.org for the registry (`refer:`),
+the registry for the name (dropping labels from the left until it knows one), and the registrar
+it names, and keeps the fields in `FIELDS` (`dns/whois.rs`).
+
 There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -236,7 +251,7 @@ and only ever talks to the screen through `Event`s.
 ### Folder layout
 
 The code is split by *what it knows about*. The rule that keeps it organised: **`scan/`, `wifi/`,
-`speedtest/`, `ping/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
+`speedtest/`, `ping/`, `dns/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
 key wiring.
 
 ```
@@ -275,6 +290,10 @@ src/
     echo.rs              one ICMP echo, timed: the ping socket on Linux and macOS, IcmpSendEcho on Windows
     pings.rs             the pings, a thread a host, --count and --wait, the totals (lost, min,
                          average, max, jitter)
+  dns/                   DNS lookups and whois, no UI
+    servers.rs           which name servers to ask: typed, or the system's (resolv.conf, GetNetworkParams)
+    lookup.rs            one question to one server over UDP or TCP, timed; the domain's own server
+    whois.rs             whois over port 43: IANA, the registry, the registrar, and the fields worth showing
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
@@ -284,6 +303,7 @@ src/
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
     speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
     ping.rs              the ping report: the loss, the summary, a row a host, a chart a host
+    dns.rs               the lookup's report: the answer, what authoritative means, the records, the whois
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report
@@ -291,6 +311,7 @@ src/
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
     ping.rs              the ping screen: each host's totals, a row a ping, a graph a host
+    dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```

@@ -2,6 +2,7 @@
 //! test's and the ping screens, and the plain tables.
 
 pub mod app;
+pub mod dns;
 pub mod ping;
 pub mod plain;
 pub mod speedtest;

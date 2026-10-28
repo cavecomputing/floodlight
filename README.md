@@ -12,7 +12,8 @@ device on your subnet, with its MAC, maker and name, so the camera or switch you
 turns up by the MAC on its label. And it lists the WiFi networks around you and how their channels
 crowd each other, so you can pick the quietest one. And it tests the internet connection's
 download, upload, latency and jitter against Cloudflare. And it pings up to five hosts over and over,
-graphing every round trip and counting the ones lost.
+graphing every round trip and counting the ones lost. And it looks names up in DNS, saying which
+server answered, how fast and whether authoritatively, and who registered the domain.
 
 Each feature is a mode, typed as a word: `floodlight ping`, `floodlight speedtest`. `floodlight`
 on its own lists the modes and the options they share; `floodlight <mode> --help` shows that
@@ -24,6 +25,7 @@ mode's own options.
 | [`wireless`](#wireless) | the WiFi networks heard, their channels and how they overlap |
 | [`speedtest`](#speedtest) | download, upload, latency and jitter, once or `--count` times |
 | [`ping`](#ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
+| [`dns`](#dns) | a name's records from the system's name server or any other, timed, authoritative or not, and its whois |
 
 | Shared option | What it does |
 |---|---|
@@ -189,9 +191,42 @@ No root and no Administrator: it uses the ping socket Linux and macOS give ordin
 Windows' own ping call. Most Linux systems allow that socket out of the box (systemd turns it on);
 if yours doesn't, Floodlight says so and gives the one `sysctl` line that allows it.
 
+## dns
+
+Looks a name up the way `dig` and `nslookup` do and prints the answer: which server was asked and
+over what, how long it took, whether the answer was authoritative (from the domain's own name
+server) or not (from a resolver, maybe out of its cache), then every record with its TTL. An
+address is looked up for its name (a reverse lookup). With no `--server` it asks the name server
+this machine uses: `/etc/resolv.conf` on Linux and macOS, the network adapters' settings on
+Windows.
+
+```
+  # example.com · a · system (192.168.1.1) · udp · 12.4 ms
+  non-authoritative · 2 records
+  example.com  5m  a  192.0.2.10
+  example.com  5m  a  192.0.2.11
+```
+
+```bash
+floodlight dns example.com                       # its A records, from the system's name server
+floodlight dns example.com --type mx,txt         # other record types, several with commas (any works too)
+floodlight dns example.com --server 1.1.1.1      # ask another server (an address, address:port or name)
+floodlight dns example.com --server 1.1.1.1,8.8.8.8     # each in turn, to compare them
+floodlight dns www.example.com --authoritative   # ask the domain's own name server, past any cache
+floodlight dns example.com --tcp                 # over TCP (UDP answers cut short retry over TCP anyway)
+floodlight dns 192.168.1.20                      # the name an address has (its PTR record)
+floodlight dns example.com --whois               # also who registered it: registrar, dates, status, name servers
+floodlight dns example.com --plain               # the same without colour
+floodlight dns example.com --whois --report dns.pdf     # write it as a PDF report
+```
+
+`--whois` asks IANA which registry keeps the domain (or the address), asks that registry, and for
+.com and .net the registrar it points to, then shows the fields worth reading. Whois runs over TCP
+port 43, which some networks block.
+
 ## --report
 
-Add `--report FILE` to `sweep`, `wireless`, `speedtest` or `ping` to run it, write it to `FILE` as
+Add `--report FILE` to `sweep`, `wireless`, `speedtest`, `ping` or `dns` to run it, write it to `FILE` as
 a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
@@ -211,6 +246,9 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   and leads with the share lost (and for one host the average, minimum, maximum and jitter), a
   summary that names the pings lost, a table of each host's totals when there are several, and a
   chart of each host's round trips. Every ping is in the charts, so there is no table of them.
+- The DNS report leads with the name, the server and how the answer went, says what an
+  authoritative or non-authoritative answer means, then has a table of records for each lookup and
+  the whois fields when asked for.
 
 The PDF uses the fonts every PDF reader has built in, so it needs nothing installed and opens
 anywhere.
