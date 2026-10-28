@@ -111,7 +111,7 @@ impl Screen {
             graph(
                 frame,
                 *place,
-                &format!("{} · Mbps · an interval a dot", direction.name()),
+                &format!("{} · Mbps · an interval a point", direction.name()),
                 &self.runs.intervals(*direction),
                 ink,
                 roles,
