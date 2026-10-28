@@ -168,7 +168,6 @@ impl Screen<'_> {
         self.opened = Instant::now();
     }
 
-    /// Forgets everything heard so far (peaks, gone access points), for a new spot.
     /// Everything heard so far, in the chosen order.
     fn rows(&self) -> Vec<(Network, Reading)> {
         let mut rows = self.trend.networks();
@@ -182,6 +181,7 @@ impl Screen<'_> {
         self.ranks = trend::ranks(&self.trend.networks());
     }
 
+    /// Forgets everything heard so far (peaks, gone access points), for a new spot.
     fn start_over(&mut self) {
         self.trend = Trend::default();
         self.ranks.clear();
