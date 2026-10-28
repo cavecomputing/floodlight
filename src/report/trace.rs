@@ -11,14 +11,14 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 8] = [
-    Column::number("hop", 0.06),
-    Column::mono("address", 0.19),
-    Column::text("name", 0.29),
-    Column::number("loss", 0.09),
-    Column::number("last", 0.0925),
-    Column::number("min", 0.0925),
-    Column::number("avg", 0.0925),
-    Column::number("max", 0.0925),
+    Column::number("Hop", 0.06),
+    Column::mono("Address", 0.19),
+    Column::text("Name", 0.29),
+    Column::number("Loss", 0.09),
+    Column::number("Last", 0.0925),
+    Column::number("Min", 0.0925),
+    Column::number("Avg", 0.0925),
+    Column::number("Max", 0.0925),
 ];
 
 /// Traces `count` rounds, `wait` apart, then writes the report.
@@ -33,7 +33,7 @@ pub fn write(path: &Path, target: &Target, count: u32, wait: Duration) -> anyhow
 /// The report's PDF file.
 pub fn document(trace: &Trace, target: &Target, wait: Duration) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("Trace · {date} {time}"));
+    let mut sheet = Sheet::new(&date, &time);
     let path = trace.path();
     let host_loss = match (trace.reached(), path.last()) {
         (true, Some(host)) => format!("{:.1}%", host.pings.loss()),
@@ -218,9 +218,9 @@ mod tests {
         let file = document(&trace, &target, Duration::ZERO);
         let file = String::from_utf8_lossy(&file);
         assert!(file.starts_with("%PDF"));
-        assert!(file.contains("(HOPS)"));
+        assert!(file.contains("(Hops)"));
         assert!(file.contains("(router.example)"));
-        assert!(file.contains("(SHARE LOST AT EACH HOP)"));
-        assert!(file.contains("(page 1 of"));
+        assert!(file.contains("(Share lost at each hop)"));
+        assert!(file.contains("(Page 1 of"));
     }
 }

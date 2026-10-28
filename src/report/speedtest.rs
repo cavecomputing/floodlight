@@ -3,7 +3,7 @@
 
 use super::pdf::{self, Font};
 use super::sheet::{
-    self, ACCENT, AQUA, BORDER, COOL, Cell, Column, FG, LEFT, MUTED, SUBTLE, SURFACE, Sheet, WIDTH,
+    self, ACCENT, AQUA, BORDER, COOL, Cell, Column, FG, LEFT, MUTED, SUBTLE, Sheet, WIDTH,
 };
 use crate::speedtest::runs::{self, Run, Runs};
 use crate::ui::plain;
@@ -11,12 +11,12 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 6] = [
-    Column::mono("time", 0.12),
-    Column::number("latency", 0.12),
-    Column::number("jitter", 0.11),
-    Column::number("download", 0.15),
-    Column::number("upload", 0.15),
-    Column::text("server", 0.35),
+    Column::mono("Time", 0.12),
+    Column::number("Latency", 0.12),
+    Column::number("Jitter", 0.11),
+    Column::number("Download", 0.15),
+    Column::number("Upload", 0.15),
+    Column::text("Server", 0.35),
 ];
 
 /// Runs the test `count` times, `wait` apart, saying how each went, then writes the report.
@@ -41,7 +41,7 @@ pub fn write(path: &Path, count: u32, wait: Duration) -> anyhow::Result<()> {
 /// The report's PDF file.
 pub fn document(runs: &Runs, wait: Duration) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("Speed test · {date} {time}"));
+    let mut sheet = Sheet::new(&date, &time);
 
     let title = format!(
         "{} down · {} up",
@@ -139,9 +139,6 @@ pub(super) fn chart(
     sheet.heading(title, CHART_HEIGHT);
     let (x, y) = (LEFT, sheet.y);
     let pdf = &mut sheet.pdf;
-    pdf.clipped((x, y, WIDTH, CHART_HEIGHT, 8.0), BORDER, |pdf| {
-        pdf.rect(x, y, WIDTH, CHART_HEIGHT, SURFACE)
-    });
     let (top, bottom) = (y + 16.0, y + CHART_HEIGHT - 26.0);
     let (left, right) = (x + SCALE, x + WIDTH - 24.0);
     let most = values.iter().flatten().copied().fold(0.0, f32::max);
@@ -168,18 +165,40 @@ pub(super) fn chart(
         let label_left = centre - pdf::width(Font::Mono, 6.0, time) / 2.0;
         pdf.text(label_left, bottom + 14.0, Font::Mono, 6.0, SUBTLE, time);
     }
+    // A light wash of the line's colour under each unbroken run of it.
+    let wash = faded(ink);
+    let mut run: Vec<(f32, f32)> = Vec::new();
+    for (i, value) in values.iter().chain([&None]).enumerate() {
+        match value {
+            Some(value) => run.push(at(i, *value)),
+            None => {
+                if run.len() > 1 {
+                    let (first, last) = (run[0].0, run[run.len() - 1].0);
+                    run.extend([(last, bottom), (first, bottom)]);
+                    pdf.polygon(&run, wash);
+                }
+                run.clear();
+            }
+        }
+    }
     for (i, pair) in values.windows(2).enumerate() {
         if let [Some(from), Some(to)] = pair {
-            pdf.line(at(i, *from), at(i + 1, *to), 1.5, ink);
+            pdf.line(at(i, *from), at(i + 1, *to), 1.1, ink);
         }
     }
     for (i, value) in values.iter().enumerate() {
         if let Some(value) = value {
             let (cx, cy) = at(i, *value);
-            pdf.bar(cx - 2.5, cy - 2.5, 5.0, 5.0, ink);
+            pdf.bar(cx - 1.5, cy - 1.5, 3.0, 3.0, ink);
         }
     }
     sheet.y += CHART_HEIGHT + 4.0;
+}
+
+/// A colour faded most of the way to white, for the wash under a chart's line.
+fn faded((r, g, b): pdf::Rgb) -> pdf::Rgb {
+    let fade = |part: u8| (part as f32 * 0.12 + 255.0 * 0.88) as u8;
+    (fade(r), fade(g), fade(b))
 }
 
 /// What the runs measured, in a sentence or three.
@@ -295,6 +314,6 @@ mod tests {
             .to_string();
         assert!(file.starts_with("%PDF"));
         assert!(file.contains("(250.0 Mbps)"));
-        assert!(file.contains("(page 1 of 1)"));
+        assert!(file.contains("(Page 1 of 1)"));
     }
 }

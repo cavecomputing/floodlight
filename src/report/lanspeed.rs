@@ -11,11 +11,11 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 6] = [
-    Column::mono("time", 0.14),
-    Column::number("upload", 0.18),
-    Column::number("download", 0.18),
-    Column::number("jitter", 0.15),
-    Column::number("lost", 0.15),
+    Column::mono("Time", 0.14),
+    Column::number("Upload", 0.18),
+    Column::number("Download", 0.18),
+    Column::number("Jitter", 0.15),
+    Column::number("Lost", 0.15),
     Column::text("", 0.20),
 ];
 
@@ -47,7 +47,7 @@ pub fn write(path: &Path, settings: Settings, count: u32, wait: Duration) -> any
 /// The report's PDF file.
 pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("LAN speed · {date} {time}"));
+    let mut sheet = Sheet::new(&date, &time);
     let udp = settings.protocol == Protocol::Udp;
     let up = runs.median(Run::upload_mbps);
     let down = runs.median(Run::download_mbps);
@@ -325,15 +325,15 @@ mod tests {
         .to_string();
         assert!(file.starts_with("%PDF"));
         assert!(file.contains("400.0 Mbps up"));
-        assert!(file.contains("(UPLOAD THROUGH THE TRANSFER)"));
-        assert!(file.contains("(DOWNLOAD THROUGH THE TRANSFER)"));
-        assert!(file.contains("(RUNS)"));
+        assert!(file.contains("(Upload through the transfer)"));
+        assert!(file.contains("(Download through the transfer)"));
+        assert!(file.contains("(Runs)"));
         let several = String::from_utf8_lossy(&document(
             &measured(&[400.0, 410.0], false),
             &settings(Protocol::Tcp),
             Duration::from_secs(5),
         ))
         .to_string();
-        assert!(several.contains("(UPLOAD ACROSS RUNS)"));
+        assert!(several.contains("(Upload across runs)"));
     }
 }

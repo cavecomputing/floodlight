@@ -2,9 +2,7 @@
 //! the quietest channels, a chart of each band, and a table of every network heard.
 
 use super::pdf::{self, Font};
-use super::sheet::{
-    self, ACCENT, AQUA, BORDER, COOL, Cell, Column, FG, LEFT, MUTED, SUBTLE, SURFACE, Sheet, WIDTH,
-};
+use super::sheet::{self, AQUA, BORDER, COOL, Cell, Column, FG, LEFT, MUTED, SUBTLE, Sheet, WIDTH};
 use crate::ui::plain;
 use crate::wifi::channels::{self, Band};
 use crate::wifi::survey::{self, Network};
@@ -13,12 +11,12 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 
 const COLUMNS: [Column; 6] = [
-    Column::text("network", 0.27),
-    Column::number("ch", 0.06),
-    Column::text("band", 0.10),
-    Column::text("width", 0.10),
-    Column::number("signal", 0.10),
-    Column::mono("bssid", 0.37),
+    Column::text("Network", 0.27),
+    Column::number("Ch", 0.06),
+    Column::text("Band", 0.10),
+    Column::text("Width", 0.10),
+    Column::number("Signal", 0.10),
+    Column::mono("BSSID", 0.37),
 ];
 
 /// Lanes in one band's chart; quieter networks past this are left out (the table has them all).
@@ -42,7 +40,7 @@ pub fn write(runtime: &Runtime, path: &Path, seconds: u64) -> anyhow::Result<()>
 /// The report's PDF file.
 pub fn document(networks: &[Network]) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("Wireless survey · {date} {time}"));
+    let mut sheet = Sheet::new(&date, &time);
 
     let bands: Vec<Band> = [Band::Ghz2, Band::Ghz5, Band::Ghz6]
         .into_iter()
@@ -150,7 +148,7 @@ fn summary(networks: &[Network], joined: Option<usize>, bands: &[Band]) -> Strin
     )
 }
 
-/// One band drawn as a card: a lane per network with a bar over the slice of spectrum it fills,
+/// One band drawn as a chart: a lane per network with a bar over the slice of spectrum it fills,
 /// the quietest channel marked, and the channel numbers along the bottom.
 fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
     let mut shown = networks.to_vec();
@@ -162,9 +160,6 @@ fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
     sheet.heading(&format!("{} channels", band.name()), height);
     let (x, y) = (LEFT, sheet.y);
     let pdf = &mut sheet.pdf;
-    pdf.clipped((x, y, WIDTH, height, 8.0), BORDER, |pdf| {
-        pdf.rect(x, y, WIDTH, height, SURFACE)
-    });
 
     // The band's edges: from its first channel to its last, or wider if a network reaches out.
     let labels = band.candidates();
@@ -176,7 +171,7 @@ fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
         .fold(edges(labels[0]).0, u32::min);
     let last = *labels.last().expect("every band has candidates");
     let high = spans.map(|(_, high)| high).fold(edges(last).1, u32::max);
-    let (axis_left, axis_right) = (x + NAMES, x + WIDTH - 14.0);
+    let (axis_left, axis_right) = (x + NAMES, x + WIDTH);
     let at = |mhz: u32| {
         axis_left
             + (mhz.clamp(low, high) - low) as f32 / (high - low) as f32 * (axis_right - axis_left)
@@ -198,15 +193,10 @@ fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
         pdf.text(left, lanes_bottom + 11.0, Font::Mono, 6.0, SUBTLE, &label);
     }
     let marker = at(channels::frequency(band, quietest));
-    pdf.line(
-        (marker, lanes_top - 4.0),
-        (marker, lanes_bottom),
-        1.2,
-        ACCENT,
-    );
+    pdf.line((marker, lanes_top - 4.0), (marker, lanes_bottom), 1.2, FG);
     let label = format!("quietest · {quietest}");
     let left = marker - pdf::width(Font::MonoBold, 6.5, &label) / 2.0;
-    pdf.text(left, y + 14.0, Font::MonoBold, 6.5, ACCENT, &label);
+    pdf.text(left, y + 14.0, Font::MonoBold, 6.5, FG, &label);
 
     for (i, network) in shown.iter().enumerate() {
         let top = lanes_top + LANE * i as f32;
@@ -223,7 +213,7 @@ fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
         );
         let label = pdf::fit(font, 7.0, &label, NAMES - 24.0);
         pdf.text(
-            x + 14.0,
+            x,
             top + 7.5,
             font,
             7.0,
@@ -236,14 +226,7 @@ fn chart(sheet: &mut Sheet, band: Band, networks: &[&Network], quietest: u32) {
     let left_out = networks.len() - shown.len();
     if left_out > 0 {
         let note = format!("{left_out} quieter networks not drawn; the table lists them all");
-        pdf.text(
-            x + 14.0,
-            lanes_bottom + 20.0,
-            Font::Sans,
-            6.5,
-            SUBTLE,
-            &note,
-        );
+        pdf.text(x, lanes_bottom + 20.0, Font::Sans, 6.5, SUBTLE, &note);
     }
     sheet.y += height + 4.0;
 }

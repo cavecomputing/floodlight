@@ -9,13 +9,13 @@ use hickory_proto::rr::{RData, Record};
 use std::path::Path;
 
 const RECORDS: [Column; 4] = [
-    Column::mono("name", 0.3),
-    Column::number("ttl", 0.08),
-    Column::text("type", 0.1),
-    Column::mono("data", 0.52),
+    Column::mono("Name", 0.3),
+    Column::number("TTL", 0.08),
+    Column::text("Type", 0.1),
+    Column::mono("Data", 0.52),
 ];
 
-const FIELDS: [Column; 2] = [Column::text("field", 0.2), Column::text("value", 0.8)];
+const FIELDS: [Column; 2] = [Column::text("Field", 0.2), Column::text("Value", 0.8)];
 
 pub fn write(
     path: &Path,
@@ -29,7 +29,7 @@ pub fn write(
 
 pub fn document(lookups: &[Lookup], whois: Option<&Result<Whois, String>>) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("DNS lookup · {date} {time}"));
+    let mut sheet = Sheet::new(&date, &time);
     let first = &lookups[0];
     let name = first.name.to_string();
     let name = name.trim_end_matches('.');

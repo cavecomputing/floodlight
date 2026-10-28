@@ -12,13 +12,13 @@ use std::path::Path;
 use std::time::Duration;
 
 const COLUMNS: [Column; 7] = [
-    Column::mono("host", 0.31),
-    Column::number("sent", 0.09),
-    Column::number("lost", 0.14),
-    Column::number("min", 0.115),
-    Column::number("avg", 0.115),
-    Column::number("max", 0.115),
-    Column::number("jitter", 0.115),
+    Column::mono("Host", 0.31),
+    Column::number("Sent", 0.09),
+    Column::number("Lost", 0.14),
+    Column::number("Min", 0.115),
+    Column::number("Avg", 0.115),
+    Column::number("Max", 0.115),
+    Column::number("Jitter", 0.115),
 ];
 
 /// Pings each host `count` times, `wait` apart, saying how each ping went, then writes the
@@ -43,7 +43,7 @@ fn ms(value: Option<f32>) -> String {
 /// The report's PDF file: `pings` holds each of the `targets`' pings, in the same order.
 pub fn document(pings: &[Pings], targets: &[Target], wait: Duration) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("Ping · {date} {time}"));
+    let mut sheet = Sheet::new(&date, &time);
     let sent: usize = pings.iter().map(|pings| pings.pings.len()).sum();
     let lost: usize = pings.iter().map(Pings::lost).sum();
     let each = pings.first().map_or(0, |pings| pings.pings.len());
@@ -260,9 +260,9 @@ mod tests {
         let file =
             String::from_utf8_lossy(&document(&measured, &targets, Duration::ZERO)).to_string();
         assert!(file.starts_with("%PDF"));
-        assert!(file.contains("(ROUND TRIP TO 192.168.1.20)"));
-        assert!(file.contains("(HOSTS)"));
-        assert!(!file.contains("(PINGS)"));
-        assert!(file.contains("(page 1 of"));
+        assert!(file.contains("(Round trip to 192.168.1.20)"));
+        assert!(file.contains("(Hosts)"));
+        assert!(!file.contains("(Pings)"));
+        assert!(file.contains("(Page 1 of"));
     }
 }

@@ -156,6 +156,18 @@ impl Pdf {
 
     /// A straight line.
     pub fn line(&mut self, from: (f32, f32), to: (f32, f32), thickness: f32, stroke: Rgb) {
+        self.line_on(self.last(), from, to, thickness, stroke);
+    }
+
+    /// A straight line on an earlier page, like the running header's rule.
+    pub fn line_on(
+        &mut self,
+        page: usize,
+        from: (f32, f32),
+        to: (f32, f32),
+        thickness: f32,
+        stroke: Rgb,
+    ) {
         let ops = format!(
             "{} {thickness:.2} w {:.2} {:.2} m {:.2} {:.2} l S",
             colour(stroke, "RG"),
@@ -164,7 +176,6 @@ impl Pdf {
             to.0,
             PAGE_HEIGHT - to.1
         );
-        let page = self.last();
         self.put(page, &ops);
     }
 
@@ -175,6 +186,18 @@ impl Pdf {
             colour(fill, "rg"),
             rounded_path(x, y, w, h, h / 2.0)
         );
+        let page = self.last();
+        self.put(page, &ops);
+    }
+
+    /// A filled shape through `points`, closed back to the first.
+    pub fn polygon(&mut self, points: &[(f32, f32)], fill: Rgb) {
+        let mut ops = colour(fill, "rg");
+        for (i, (x, y)) in points.iter().enumerate() {
+            let operator = if i == 0 { "m" } else { "l" };
+            ops.push_str(&format!(" {x:.2} {:.2} {operator}", PAGE_HEIGHT - y));
+        }
+        ops.push_str(" h f");
         let page = self.last();
         self.put(page, &ops);
     }

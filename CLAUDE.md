@@ -197,9 +197,11 @@ background, and fills the table as answers come in. Ctrl+R sweeps again.
 
 `--report FILE`: with either feature, runs it once, writes `FILE` as a PDF and exits. The PDF is
 written by hand in `report/` (no crate): the built-in Helvetica and Courier, which every reader
-has, so nothing is embedded. It follows the design system's print documents (the light theme on a
-cream Letter page, yellow edges, small-capital headings, rounded tables) with **no branding**: no
-name or logo anywhere on it.
+has, so nothing is embedded. It looks like a printed documentation page, not the brand's print
+style: white Letter paper, a running header and page count on every page, the title over a grey
+strip of facts, the summary as a note with a slate-blue edge, headings over a thin rule, and tables
+with a grey header row and striped rows. Its few colours live in `report/sheet.rs`.
+**No branding**: no name or logo anywhere on it.
 
 `wireless`: `floodlight wireless` opens a screen of every network heard and keeps asking the
 OS's own tool for the list in the background, a second after each answer, keeping the rows up
@@ -355,7 +357,8 @@ src/
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
   report/                the PDF reports for --report (colours from ui/theme.rs, nothing on screen)
     pdf.rs               the PDF file format: pages, shapes, text in the built-in fonts and their widths
-    sheet.rs             the report's page: header card, summary, headings, tables, page breaks, footer
+    sheet.rs             the report's page and colours: running header, title and facts, summary note,
+                         headings, tables, page breaks, footer
     sweep.rs             the sweep's report: the summary sentences and the table of devices
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
     speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
@@ -365,8 +368,8 @@ src/
     dns.rs               the lookup's report: the answer, what authoritative means, the records, the whois
     lanspeed.rs          the LAN speed report: the throughput each way, a chart a direction, a row a run
   ui/                    everything on screen
-    theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
-                         Gruvbox light for the printed report
+    theme.rs             colour roles as ratatui styles, in the terminal's own colours (the
+                         printed report keeps its own, in report/sheet.rs)
     app.rs               the sweep's screen: state, key handling, the prompt and the table
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
@@ -402,7 +405,7 @@ at the bottom of the file they test.
   **No bright black for text**: Solarized Dark (common on macOS) makes it the background, so
   anything drawn in it vanishes. Colours come from roles, never hex or a named
   colour at the call site. Every status also carries a word (`no reply`, `copy failed: ...`),
-  never colour alone. The printed report keeps the Gruvbox light palette's real colours.
+  never colour alone. The printed report has its own few real colours, in `report/sheet.rs`.
 - **The font is the terminal's.** A desktop app of this brand bundles JetBrains Mono NL Nerd Font;
   a terminal tool can't, so the screen uses only plain Unicode it can count on: `●`, `·`, `—`,
   `─`. No Nerd Font glyphs, no emoji.

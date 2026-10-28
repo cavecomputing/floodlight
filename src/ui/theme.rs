@@ -1,6 +1,6 @@
-//! Colours as named roles from the cavecomputing design system's tokens: the screen's, in the
-//! terminal's own colours, and the Gruvbox light palette the printed report uses. Colours
-//! anywhere else come from `Roles`, never hex.
+//! Colours as named roles from the cavecomputing design system's tokens, in the terminal's own
+//! colours. Colours anywhere else on screen come from `Roles`, never hex; the printed report
+//! keeps its own in `report/sheet.rs`.
 
 use clap::builder::styling::{AnsiColor, Style as HelpStyle, Styles};
 use ratatui::style::{Color, Modifier, Style};
@@ -8,8 +8,6 @@ use ratatui::style::{Color, Modifier, Style};
 pub struct Roles {
     /// The status bar.
     pub bg_page: Color,
-    /// The screen.
-    pub bg_surface: Color,
     /// The band under the active row.
     pub bg_inset: Color,
     /// The line above the status bar.
@@ -22,7 +20,7 @@ pub struct Roles {
     pub accent_text: Color,
     /// Blue: addresses.
     pub accent_cool: Color,
-    /// Warm (orange in print, magenta on screen): anything that went wrong, always with words.
+    /// Warm (magenta on screen): anything that went wrong, always with words.
     /// There is no red.
     pub accent_warm: Color,
     /// Aqua: a host that answered, a copy that worked.
@@ -36,7 +34,6 @@ pub struct Roles {
 /// macOS, makes bright black its background, which hid every comment, heading and hint.
 pub const TERMINAL: Roles = Roles {
     bg_page: Color::Reset,
-    bg_surface: Color::Reset,
     bg_inset: Color::DarkGray,
     border: Color::Reset,
     fg: Color::Reset,
@@ -61,21 +58,6 @@ pub const HELP: Styles = Styles::styled()
     .invalid(AnsiColor::Magenta.on_default())
     .error(AnsiColor::Magenta.on_default().bold())
     .context(HelpStyle::new().dimmed());
-
-/// The Gruvbox light theme, for the printed report.
-pub const LIGHT: Roles = Roles {
-    bg_page: Color::Rgb(0xf9, 0xf5, 0xd7),
-    bg_surface: Color::Rgb(0xfb, 0xf1, 0xc7),
-    bg_inset: Color::Rgb(0xeb, 0xdb, 0xb2),
-    border: Color::Rgb(0xe0, 0xd3, 0xac),
-    fg: Color::Rgb(0x3c, 0x38, 0x36),
-    fg_muted: Color::Rgb(0x66, 0x5c, 0x54),
-    fg_subtle: Color::Rgb(0x7c, 0x6f, 0x64),
-    accent_text: Color::Rgb(0x8a, 0x5a, 0x0e),
-    accent_cool: Color::Rgb(0x07, 0x66, 0x78),
-    accent_warm: Color::Rgb(0xaf, 0x3a, 0x03),
-    accent_aqua: Color::Rgb(0x37, 0x6b, 0x4b),
-};
 
 impl Roles {
     pub fn text(&self) -> Style {

@@ -9,11 +9,11 @@ use std::path::Path;
 use tokio::runtime::Runtime;
 
 const COLUMNS: [Column; 5] = [
-    Column::mono("address", 0.17),
-    Column::mono("mac", 0.19),
-    Column::text("maker", 0.25),
-    Column::text("name", 0.26),
-    Column::number("ping", 0.13),
+    Column::mono("Address", 0.17),
+    Column::mono("MAC", 0.19),
+    Column::text("Maker", 0.25),
+    Column::text("Name", 0.26),
+    Column::number("Ping", 0.13),
 ];
 
 pub fn write(runtime: &Runtime, subnet: Subnet, filter: &str, path: &Path) -> anyhow::Result<()> {
@@ -26,7 +26,7 @@ pub fn write(runtime: &Runtime, subnet: Subnet, filter: &str, path: &Path) -> an
 /// The report's PDF file.
 pub fn document(hosts: &Hosts, subnet: &Subnet, filter: &str) -> Vec<u8> {
     let (date, time) = sheet::now();
-    let mut sheet = Sheet::new(format!("Network sweep · {} · {date} {time}", subnet.net));
+    let mut sheet = Sheet::new(&date, &time);
 
     let mut from = Vec::new();
     if let Some(interface) = &subnet.interface {
@@ -203,6 +203,6 @@ mod tests {
         assert!(file.starts_with("%PDF"));
         assert!(file.contains("(192.168.1.0/24)"));
         assert!(file.contains("(doorcam.local)"));
-        assert!(file.contains("(page 3 of 3)"));
+        assert!(file.contains("(Page 3 of 3)"));
     }
 }

@@ -1,34 +1,29 @@
-//! The report's page, laid out like the design system's print documents: a cream Letter page, a
-//! header card with a yellow top edge, a summary with a yellow left edge, small capital section
-//! headings, tables in rounded outlines, and a footer line with the page count. No name or logo.
+//! The report's page, laid out like a printed documentation page: white Letter paper, a running
+//! header and a page count on every page, a title over a strip of facts, the summary as a note,
+//! headings over a thin rule, and tables with a grey header row and striped rows. No name or logo.
 
 use super::pdf::{self, Font, PAGE_HEIGHT, PAGE_WIDTH, Pdf, Rgb};
-use crate::ui::theme::LIGHT;
-use ratatui::style::Color;
 
-/// The light theme's roles, as the print documents use them.
-pub const PAGE: Rgb = rgb(LIGHT.bg_page);
-pub const SURFACE: Rgb = rgb(LIGHT.bg_surface);
-pub const BORDER: Rgb = rgb(LIGHT.border);
-pub const FG: Rgb = rgb(LIGHT.fg);
-pub const MUTED: Rgb = rgb(LIGHT.fg_muted);
-pub const SUBTLE: Rgb = rgb(LIGHT.fg_subtle);
-pub const COOL: Rgb = rgb(LIGHT.accent_cool);
-pub const AQUA: Rgb = rgb(LIGHT.accent_aqua);
-/// The yellow of the print documents' edges and headings: paper takes a brighter one than the
-/// screen's `accent-text`.
-pub const ACCENT: Rgb = (0xb5, 0x76, 0x14);
+/// The paper's colours: near-black text, greys for structure, and one slate blue.
+pub const FG: Rgb = (0x1f, 0x23, 0x28);
+pub const MUTED: Rgb = (0x59, 0x63, 0x6e);
+/// Dashes and words standing in for a missing value.
+pub const SUBTLE: Rgb = (0x7d, 0x87, 0x91);
+pub const BORDER: Rgb = (0xd1, 0xd9, 0xe0);
+/// The facts strip.
+const SURFACE: Rgb = (0xf6, 0xf8, 0xfa);
 /// A table's header row.
-pub const RAISED: Rgb = (0xf2, 0xe5, 0xbc);
-/// A table's rows: a shade lighter than the surface, so the table reads as paper on the page.
-pub const CELL: Rgb = (0xff, 0xfb, 0xe5);
-
-const fn rgb(colour: Color) -> Rgb {
-    match colour {
-        Color::Rgb(r, g, b) => (r, g, b),
-        _ => (0, 0, 0),
-    }
-}
+const RAISED: Rgb = (0xf0, 0xf3, 0xf6);
+/// Every other row of a table.
+const STRIPE: Rgb = (0xf8, 0xf9, 0xfb);
+/// The summary's note.
+const NOTE: Rgb = (0xee, 0xf4, 0xfa);
+/// The one accent: the note's edge and the charts' lines.
+pub const ACCENT: Rgb = (0x2b, 0x5b, 0x84);
+/// Addresses.
+pub const COOL: Rgb = ACCENT;
+/// A host that answered, the network joined, the download.
+pub const AQUA: Rgb = (0x1a, 0x7f, 0x37);
 
 /// Today's date and the time now, in this machine's time zone: `October 27, 2026` and `14:05`.
 pub fn now() -> (String, String) {
@@ -40,14 +35,15 @@ pub fn now() -> (String, String) {
 }
 
 /// The page margins, and the width between them.
-pub const LEFT: f32 = 43.0;
+pub const LEFT: f32 = 54.0;
 pub const WIDTH: f32 = PAGE_WIDTH - 2.0 * LEFT;
-const TOP: f32 = 40.0;
-const BOTTOM: f32 = PAGE_HEIGHT - 50.0;
+const TOP: f32 = 72.0;
+const BOTTOM: f32 = PAGE_HEIGHT - 56.0;
+/// The running header's baseline.
+const HEADER: f32 = 40.0;
 
-const ROW: f32 = 18.0;
-const CELL_PAD: f32 = 8.0;
-const RADIUS: f32 = 8.0;
+const ROW: f32 = 15.0;
+const CELL_PAD: f32 = 7.0;
 
 /// A table column: its heading, its share of the width, and whether it holds addresses or MACs
 /// (set in the monospaced font) or numbers (set to the right).
@@ -89,21 +85,36 @@ impl Column {
 /// One cell's text and colour.
 pub type Cell = (String, Rgb);
 
+/// `text` with a capital first letter: the reports write their titles, facts and subtitles in
+/// lowercase, as the screen does.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 /// A report being laid out, top to bottom, a new page whenever the next piece won't fit.
 pub struct Sheet {
     pub pdf: Pdf,
     /// How far down the current page the next piece starts.
     pub y: f32,
-    /// The left of the footer: what the report is and when it was made.
+    /// The running header: what kind of report on the left, its title on the right.
+    kind: String,
+    title: String,
+    /// The left of the footer: when the report was made.
     footer: String,
 }
 
 impl Sheet {
-    pub fn new(footer: String) -> Sheet {
+    pub fn new(date: &str, time: &str) -> Sheet {
         let mut sheet = Sheet {
             pdf: Pdf::new(),
             y: 0.0,
-            footer,
+            kind: String::new(),
+            title: String::new(),
+            footer: format!("Generated {date}, {time}"),
         };
         sheet.new_page();
         sheet
@@ -111,7 +122,6 @@ impl Sheet {
 
     fn new_page(&mut self) {
         self.pdf.add_page();
-        self.pdf.rect(0.0, 0.0, PAGE_WIDTH, PAGE_HEIGHT, PAGE);
         self.y = TOP;
     }
 
@@ -122,93 +132,73 @@ impl Sheet {
         }
     }
 
-    /// The header card: what kind of report, its title and a line under it, then the facts
-    /// in a row of small labelled columns.
+    /// The title and a line under it, then the facts in a grey strip of small labelled columns.
+    /// The kind and the title also head every page.
     pub fn masthead(&mut self, kind: &str, title: &str, subtitle: &str, facts: &[(&str, String)]) {
-        let (x, y, height) = (LEFT, self.y, 104.0);
-        self.pdf
-            .clipped((x, y, WIDTH, height, 10.0), BORDER, |pdf| {
-                pdf.rect(x, y, WIDTH, height, SURFACE);
-                pdf.rect(x, y, WIDTH, 4.0, ACCENT);
-            });
-        let inner = x + 20.0;
+        let title = capitalized(title);
+        self.kind = kind.to_string();
+        self.title = title.clone();
+        let y = self.y;
         let pdf = &mut self.pdf;
+        let title = pdf::fit(Font::SansBold, 20.0, &title, WIDTH);
+        pdf.text(LEFT, y + 16.0, Font::SansBold, 20.0, FG, &title);
         pdf.text(
-            inner,
-            y + 22.0,
-            Font::MonoBold,
-            7.5,
-            SUBTLE,
-            &kind.to_uppercase(),
+            LEFT,
+            y + 32.0,
+            Font::Sans,
+            10.0,
+            MUTED,
+            &capitalized(subtitle),
         );
-        let title = pdf::fit(Font::SansBold, 18.0, title, WIDTH - 40.0);
-        pdf.text(inner, y + 46.0, Font::SansBold, 18.0, FG, &title);
-        pdf.text(inner, y + 62.0, Font::Sans, 10.5, MUTED, subtitle);
-        pdf.line(
-            (inner, y + 72.0),
-            (x + WIDTH - 20.0, y + 72.0),
-            0.75,
-            BORDER,
-        );
-        let mut column = inner;
+        let (strip, height) = (y + 44.0, 34.0);
+        pdf.clipped((LEFT, strip, WIDTH, height, 3.0), BORDER, |pdf| {
+            pdf.rect(LEFT, strip, WIDTH, height, SURFACE)
+        });
+        let mut column = LEFT + 11.0;
         for (label, fact) in facts {
-            pdf.text(
-                column,
-                y + 84.0,
-                Font::MonoBold,
-                6.8,
-                SUBTLE,
-                &label.to_uppercase(),
-            );
-            pdf.text(column, y + 95.0, Font::Sans, 8.5, FG, fact);
-            let label_width = pdf::width(Font::MonoBold, 6.8, label);
-            column += pdf::width(Font::Sans, 8.5, fact).max(label_width) + 22.0;
+            let label = capitalized(label);
+            pdf.text(column, strip + 13.0, Font::Sans, 7.5, MUTED, &label);
+            pdf.text(column, strip + 25.0, Font::SansBold, 8.5, FG, fact);
+            let label_width = pdf::width(Font::Sans, 7.5, &label);
+            column += pdf::width(Font::SansBold, 8.5, fact).max(label_width) + 26.0;
         }
-        self.y += height + 14.0;
+        self.y = strip + height + 14.0;
     }
 
-    /// The few sentences a reader takes away, in a card with a yellow left edge.
+    /// The few sentences a reader takes away, as a note with a blue left edge.
     pub fn summary(&mut self, text: &str) {
-        let lines = pdf::wrap(Font::Sans, 10.0, text, WIDTH - 32.0);
-        let height = 20.0 + 14.0 * lines.len() as f32;
+        let lines = pdf::wrap(Font::Sans, 9.5, text, WIDTH - 26.0);
+        let height = 30.0 + 13.5 * lines.len() as f32;
         self.room(height);
         let (x, y) = (LEFT, self.y);
-        self.pdf
-            .clipped((x, y, WIDTH, height, RADIUS), BORDER, |pdf| {
-                pdf.rect(x, y, WIDTH, height, SURFACE);
-                pdf.rect(x, y, 4.0, height, ACCENT);
-            });
+        let pdf = &mut self.pdf;
+        pdf.rect(x, y, WIDTH, height, NOTE);
+        pdf.rect(x, y, 3.0, height, ACCENT);
+        pdf.text(x + 13.0, y + 15.0, Font::SansBold, 9.0, ACCENT, "Summary");
         for (i, line) in lines.iter().enumerate() {
-            let baseline = y + 24.0 + 14.0 * i as f32;
-            self.pdf
-                .text(x + 16.0, baseline, Font::Sans, 10.0, FG, line);
+            let baseline = y + 29.0 + 13.5 * i as f32;
+            pdf.text(x + 13.0, baseline, Font::Sans, 9.5, FG, line);
         }
         self.y += height + 4.0;
     }
 
-    /// A section heading, kept on the page with at least `then` points of what follows it.
+    /// A section heading over a thin rule, kept on the page with at least `then` points of what
+    /// follows it.
     pub fn heading(&mut self, text: &str, then: f32) {
-        self.room(34.0 + then);
+        self.room(40.0 + then);
         self.y += 16.0;
         let pdf = &mut self.pdf;
-        pdf.text(
-            LEFT,
-            self.y + 8.0,
-            Font::MonoBold,
-            8.0,
-            ACCENT,
-            &text.to_uppercase(),
-        );
+        pdf.text(LEFT, self.y + 10.0, Font::SansBold, 12.5, FG, text);
         pdf.line(
-            (LEFT, self.y + 13.0),
-            (LEFT + WIDTH, self.y + 13.0),
-            0.75,
+            (LEFT, self.y + 16.0),
+            (LEFT + WIDTH, self.y + 16.0),
+            0.5,
             BORDER,
         );
-        self.y += 20.0;
+        self.y += 24.0;
     }
 
-    /// A table in a rounded outline, one line a row, cut to fit its column. A table that runs off
+    /// A table in a thin outline, one line a row, cut to fit its column. A table that runs off
     /// the page carries on in a new outline on the next one, under its header row again.
     pub fn table(&mut self, columns: &[Column], rows: &[Vec<Cell>]) {
         let mut rest = rows;
@@ -224,18 +214,16 @@ impl Sheet {
     fn table_part(&mut self, columns: &[Column], rows: &[Vec<Cell>]) {
         let (x, y) = (LEFT, self.y);
         let height = ROW * (rows.len() + 1) as f32;
-        self.pdf
-            .clipped((x, y, WIDTH, height, RADIUS), BORDER, |pdf| {
-                pdf.rect(x, y, WIDTH, height, CELL);
-                pdf.rect(x, y, WIDTH, ROW, RAISED);
-                for i in 0..rows.len() {
-                    let line = y + ROW * (i + 1) as f32;
-                    pdf.line((x, line), (x + WIDTH, line), 0.75, BORDER);
-                }
-            });
+        self.pdf.clipped((x, y, WIDTH, height, 0.0), BORDER, |pdf| {
+            pdf.rect(x, y, WIDTH, ROW, RAISED);
+            for i in (1..rows.len()).step_by(2) {
+                pdf.rect(x, y + ROW * (i + 1) as f32, WIDTH, ROW, STRIPE);
+            }
+            pdf.line((x, y + ROW), (x + WIDTH, y + ROW), 0.5, BORDER);
+        });
         let header: Vec<Cell> = columns
             .iter()
-            .map(|column| (column.label.to_uppercase(), MUTED))
+            .map(|column| (column.label.to_string(), FG))
             .collect();
         self.cells(columns, &header, y, true);
         for (i, row) in rows.iter().enumerate() {
@@ -248,7 +236,7 @@ impl Sheet {
         let mut x = LEFT;
         for (column, (text, ink)) in columns.iter().zip(row) {
             let (font, size) = match (header, column.mono) {
-                (true, _) => (Font::MonoBold, 6.8),
+                (true, _) => (Font::SansBold, 8.0),
                 (false, true) => (Font::Mono, 8.0),
                 (false, false) => (Font::Sans, 8.5),
             };
@@ -258,21 +246,32 @@ impl Sheet {
                 true => x + column.width * WIDTH - CELL_PAD - pdf::width(font, size, &text),
                 false => x + CELL_PAD,
             };
-            self.pdf.text(left, top + 12.0, font, size, *ink, &text);
+            self.pdf.text(left, top + 10.5, font, size, *ink, &text);
             x += column.width * WIDTH;
         }
     }
 
-    /// The finished file, with the footer on every page now the count is known.
+    /// The finished file, with the running header and the footer on every page now the count is
+    /// known.
     pub fn finish(mut self) -> Vec<u8> {
         let pages = self.pdf.page_count();
-        let baseline = PAGE_HEIGHT - 28.0;
+        let footer = PAGE_HEIGHT - 30.0;
+        let right = |text: &str| LEFT + WIDTH - pdf::width(Font::Sans, 7.5, text);
+        let title = pdf::fit(Font::Sans, 7.5, &self.title, WIDTH / 2.0);
         for page in 0..pages {
-            let count = format!("page {} of {pages}", page + 1);
-            let right = LEFT + WIDTH - pdf::width(Font::Sans, 7.5, &count);
+            let count = format!("Page {} of {pages}", page + 1);
             let pdf = &mut self.pdf;
-            pdf.text_on(page, LEFT, baseline, Font::Sans, 7.5, SUBTLE, &self.footer);
-            pdf.text_on(page, right, baseline, Font::Sans, 7.5, SUBTLE, &count);
+            pdf.text_on(page, LEFT, HEADER, Font::Sans, 7.5, MUTED, &self.kind);
+            pdf.text_on(page, right(&title), HEADER, Font::Sans, 7.5, MUTED, &title);
+            pdf.line_on(
+                page,
+                (LEFT, HEADER + 6.0),
+                (LEFT + WIDTH, HEADER + 6.0),
+                0.5,
+                BORDER,
+            );
+            pdf.text_on(page, LEFT, footer, Font::Sans, 7.5, MUTED, &self.footer);
+            pdf.text_on(page, right(&count), footer, Font::Sans, 7.5, MUTED, &count);
         }
         self.pdf.finish()
     }
