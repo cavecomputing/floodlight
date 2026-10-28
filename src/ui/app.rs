@@ -9,25 +9,19 @@ use crate::scan::subnet::Subnet;
 use crate::scan::sweep::{self, Event};
 use crate::ui::status_bar::{self, Notice};
 use crate::ui::theme::{Roles, TERMINAL};
-use crate::ui::{INSET, inset};
-use ratatui::crossterm::event::{
-    self as input, Event as Input, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-};
+use crate::ui::{self, INSET, inset};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-/// How often the screen looks for new rows and key presses.
-const TICK: Duration = Duration::from_millis(50);
 const NOTICE_FOR: Duration = Duration::from_millis(2500);
-/// The sweeping dot's pulse, the screen's only looping motion.
-const PULSE: Duration = Duration::from_millis(600);
 const PLACEHOLDER: &str = "type part of an ip, mac, maker or name";
 const HINTS: [&str; 5] = [
     "enter copy ip",
@@ -90,10 +84,7 @@ impl<'a> App<'a> {
                 self.notice = None;
             }
             terminal.draw(|frame| self.draw(frame))?;
-            if input::poll(TICK)?
-                && let Input::Key(key) = input::read()?
-                && key.kind != KeyEventKind::Release
-            {
+            if let Some(key) = ui::pressed()? {
                 self.press(key);
             }
         }
@@ -214,10 +205,6 @@ impl<'a> App<'a> {
     fn draw(&mut self, frame: &mut Frame) {
         let roles = &TERMINAL;
         let area = frame.area();
-        frame.render_widget(
-            Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
-            area,
-        );
         let [_, head, prompt, _, table, rule, bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
@@ -289,8 +276,7 @@ impl<'a> App<'a> {
                 ),
             ]),
             None => {
-                let lit = (self.opened.elapsed().as_millis() / PULSE.as_millis()).is_multiple_of(2);
-                let dot = if lit { roles.active() } else { roles.comment() };
+                let dot = ui::pulse(self.opened, roles);
                 Line::from(vec![
                     Span::styled("● ", dot),
                     Span::styled(
@@ -344,11 +330,7 @@ impl<'a> App<'a> {
         self.table.select((!empty).then_some(index));
         frame.render_stateful_widget(table, area, &mut self.table);
 
-        if area.height > 0 && area.width > INSET {
-            frame.buffer_mut()[(area.x + INSET, area.y)]
-                .set_char('#')
-                .set_style(roles.comment());
-        }
+        ui::comment_mark(frame, area, roles);
         if empty && area.height > 1 {
             let why = if !self.filter.is_empty() {
                 "nothing matches"

@@ -7,21 +7,16 @@ use crate::ping::target::Target;
 use crate::ui::speedtest::{PLOT_ROWS, graph};
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
-use crate::ui::{INSET, inset, plain};
-use ratatui::crossterm::event::{
-    self as input, Event as Input, KeyCode, KeyEventKind, KeyModifiers,
-};
+use crate::ui::{self, inset, plain};
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
+use ratatui::widgets::{Cell, Paragraph, Row};
 use ratatui::{DefaultTerminal, Frame};
 use std::net::Ipv4Addr;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
-const TICK: Duration = Duration::from_millis(50);
-const PULSE: Duration = Duration::from_millis(600);
 const HINTS: [&str; 2] = ["^r start over", "^c quit"];
 /// Graphs side by side in a row, before the next row starts.
 const GRAPHS_A_ROW: usize = 3;
@@ -80,10 +75,7 @@ impl Screen {
                 }
             }
             terminal.draw(|frame| self.draw(frame))?;
-            if input::poll(TICK)?
-                && let Input::Key(key) = input::read()?
-                && key.kind != KeyEventKind::Release
-            {
+            if let Some(key) = ui::pressed()? {
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match (key.code, ctrl) {
                     (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
@@ -106,10 +98,6 @@ impl Screen {
 
     fn draw(&self, frame: &mut Frame) {
         let roles = &TERMINAL;
-        frame.render_widget(
-            Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
-            frame.area(),
-        );
         let hosts = self.targets.len();
         let graph_rows = hosts.div_ceil(GRAPHS_A_ROW);
         let [_, head, totals, _, table, graphs, rule, bar] = Layout::vertical([
@@ -180,8 +168,7 @@ impl Screen {
                 ),
             }
         } else {
-            let lit = (self.opened.elapsed().as_millis() / PULSE.as_millis()).is_multiple_of(2);
-            let dot = if lit { roles.active() } else { roles.comment() };
+            let dot = ui::pulse(self.opened, roles);
             let words = match self.count {
                 0 => format!("pinging · {sent} sent"),
                 count => format!("pinging · {sent} of {}", count as usize * self.pings.len()),
@@ -227,24 +214,6 @@ impl Screen {
         }
         widths.push(Constraint::Fill(1));
         titles.push("latency");
-        let header = Row::new(
-            titles
-                .into_iter()
-                .map(|title| Cell::from(Span::styled(title, roles.comment()))),
-        );
-        let table = Table::new(rows, widths).header(header).column_spacing(2);
-        // The rows start two columns in from the `#` that comments out the header, like the
-        // other screens' tables.
-        let rows = Rect {
-            x: area.x + INSET + 2,
-            width: area.width.saturating_sub(INSET + 2),
-            ..area
-        };
-        frame.render_widget(table, rows);
-        if area.height > 0 && area.width > INSET {
-            frame.buffer_mut()[(area.x + INSET, area.y)]
-                .set_char('#')
-                .set_style(roles.comment());
-        }
+        ui::comment_table(frame, area, roles, &titles, widths, rows);
     }
 }

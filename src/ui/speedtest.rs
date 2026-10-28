@@ -5,20 +5,16 @@
 use crate::speedtest::runs::{self, Event, Phase, Run, Runs};
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
-use crate::ui::{INSET, inset, plain};
-use ratatui::crossterm::event::{
-    self as input, Event as Input, KeyCode, KeyEventKind, KeyModifiers,
-};
+use crate::ui::{self, inset, plain};
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
+use ratatui::widgets::{Cell, Paragraph, Row};
 use ratatui::{DefaultTerminal, Frame};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-const TICK: Duration = Duration::from_millis(50);
-const PULSE: Duration = Duration::from_millis(600);
 const HINTS: [&str; 2] = ["^r test again", "^c quit"];
 /// Rows a graph plots in, under its title.
 pub const PLOT_ROWS: u16 = 6;
@@ -58,10 +54,7 @@ impl Screen {
                 self.runs.apply(event);
             }
             terminal.draw(|frame| self.draw(frame))?;
-            if input::poll(TICK)?
-                && let Input::Key(key) = input::read()?
-                && key.kind != KeyEventKind::Release
-            {
+            if let Some(key) = ui::pressed()? {
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match (key.code, ctrl) {
                     (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
@@ -81,10 +74,6 @@ impl Screen {
 
     fn draw(&self, frame: &mut Frame) {
         let roles = &TERMINAL;
-        frame.render_widget(
-            Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
-            frame.area(),
-        );
         let [_, head, _, table, rule, bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
@@ -140,8 +129,7 @@ impl Screen {
             let words = format!("next run in {seconds}s · {started} of {} done", self.asked);
             (roles.comment(), words, roles.muted())
         } else {
-            let lit = (self.opened.elapsed().as_millis() / PULSE.as_millis()).is_multiple_of(2);
-            let dot = if lit { roles.active() } else { roles.comment() };
+            let dot = ui::pulse(self.opened, roles);
             let phase = self.runs.runs.last().and_then(|run| run.phase);
             let mut words = match phase {
                 Some(phase) => format!("measuring {}", phase.name()),
@@ -172,21 +160,7 @@ impl Screen {
             Constraint::Length(12),
             Constraint::Fill(1),
         ];
-        let header = Row::new(titles.map(|title| Cell::from(Span::styled(title, roles.comment()))));
-        let table = Table::new(rows, widths).header(header).column_spacing(2);
-        // The rows start two columns in from the `#` that comments out the header, like the
-        // other screens' tables.
-        let rows = Rect {
-            x: area.x + INSET + 2,
-            width: area.width.saturating_sub(INSET + 2),
-            ..area
-        };
-        frame.render_widget(table, rows);
-        if area.height > 0 && area.width > INSET {
-            frame.buffer_mut()[(area.x + INSET, area.y)]
-                .set_char('#')
-                .set_style(roles.comment());
-        }
+        ui::comment_table(frame, area, roles, &titles, widths.to_vec(), rows);
     }
 
     /// Download, upload and latency side by side, each a graph of its runs.

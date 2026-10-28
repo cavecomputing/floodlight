@@ -5,25 +5,21 @@
 
 use crate::ui::status_bar;
 use crate::ui::theme::{Roles, TERMINAL};
-use crate::ui::{INSET, inset};
+use crate::ui::{self, INSET, inset};
 use crate::wifi::channels::{self, Band};
 use crate::wifi::survey::{self, Network};
 use crate::wifi::trend::{self, Reading, Sort, Trend};
-use ratatui::crossterm::event::{
-    self as input, Event as Input, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
-const TICK: Duration = Duration::from_millis(50);
-const PULSE: Duration = Duration::from_millis(600);
 /// The pause between one scan answering and the next one starting.
 const SCAN_GAP: Duration = Duration::from_secs(1);
 const HINTS: [&str; 3] = ["tab sort", "^r start over", "^c quit"];
@@ -120,10 +116,7 @@ impl Screen<'_> {
                 self.scan_again();
             }
             terminal.draw(|frame| self.draw(frame))?;
-            if input::poll(TICK)?
-                && let Input::Key(key) = input::read()?
-                && key.kind != KeyEventKind::Release
-            {
+            if let Some(key) = ui::pressed()? {
                 self.press(key);
             }
         }
@@ -198,10 +191,6 @@ impl Screen<'_> {
 
     fn draw(&mut self, frame: &mut Frame) {
         let roles = &TERMINAL;
-        frame.render_widget(
-            Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
-            frame.area(),
-        );
         let [_, head, _, table, rule, bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
@@ -231,8 +220,7 @@ impl Screen<'_> {
     fn state_line(&self, roles: &Roles) -> Line<'static> {
         let (dot, words, tone) = match &self.heard {
             _ if self.scanning => {
-                let lit = (self.opened.elapsed().as_millis() / PULSE.as_millis()).is_multiple_of(2);
-                let dot = if lit { roles.active() } else { roles.comment() };
+                let dot = ui::pulse(self.opened, roles);
                 (dot, "scanning".to_string(), roles.muted())
             }
             Some((Ok(networks), took)) => (
@@ -282,11 +270,7 @@ impl Screen<'_> {
         self.table.select((!empty).then_some(index));
         frame.render_stateful_widget(table, area, &mut self.table);
 
-        if area.height > 0 && area.width > INSET {
-            frame.buffer_mut()[(area.x + INSET, area.y)]
-                .set_char('#')
-                .set_style(roles.comment());
-        }
+        ui::comment_mark(frame, area, roles);
         if empty && area.height > 1 && matches!(self.heard, Some((Ok(_), _))) {
             frame.render_widget(
                 Paragraph::new(Span::styled("# nothing heard", roles.comment())),
