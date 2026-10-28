@@ -1,7 +1,9 @@
 //! Everything on screen: the sweep's search screen (ratatui), the wireless screen, the speed
-//! test's, the ping, trace and LAN speed test's screens, and the plain tables.
+//! test's, the ping, trace and LAN speed test's screens, the plain tables, and the lines `dns`
+//! and `calc` print and leave in the terminal.
 
 pub mod app;
+pub mod calc;
 pub mod dns;
 pub mod lanspeed;
 pub mod ping;
@@ -14,11 +16,14 @@ pub mod wireless;
 
 use crate::ui::theme::Roles;
 use ratatui::Frame;
+use ratatui::backend::IntoCrossterm;
 use ratatui::crossterm::event::{self as input, Event as Input, KeyEvent, KeyEventKind};
+use ratatui::crossterm::style::StyledContent;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::Style;
-use ratatui::text::Span;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Row, Table};
+use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 /// Columns in from the left edge, like the 16px inset of a desktop panel.
@@ -85,5 +90,24 @@ pub fn comment_mark(frame: &mut Frame, area: Rect, roles: &Roles) {
         frame.buffer_mut()[(area.x + INSET, area.y)]
             .set_char('#')
             .set_style(roles.comment());
+    }
+}
+
+/// Prints lines to stdout and leaves them there, like dig: in the terminal's colours unless
+/// `plain`, piped, or `NO_COLOR`.
+pub fn print_lines(lines: Vec<Line>, plain: bool) {
+    let styled =
+        !plain && std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    for line in lines {
+        match styled {
+            true => {
+                for span in &line.spans {
+                    let style = line.style.patch(span.style).into_crossterm();
+                    print!("{}", StyledContent::new(style, &span.content));
+                }
+                println!();
+            }
+            false => println!("{line}"),
+        }
     }
 }

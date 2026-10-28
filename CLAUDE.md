@@ -13,9 +13,10 @@ hop, round after round, each hop's round trips and losses, so where loss starts 
 looks a name up like dig, from the
 system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
 registered it. `lanspeed` measures the throughput between two machines on the LAN, iperf-style:
-`--serve` on one, `--connect` from the other, over TCP or UDP. `wake` sends a Wake-on-LAN packet
-to a MAC. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
-macOS and Windows: a change for one OS must leave the others working, Linux above all.
+`--serve` on one, `--connect` from the other, over TCP or UDP. `calc` works out a subnet's
+network, broadcast, usable range and masks. `wake` sends a Wake-on-LAN packet to a MAC. Linux
+(the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on macOS and
+Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
 crate is, why the borrow checker complained, what a command does) rather than assuming he knows
@@ -142,6 +143,7 @@ cargo run -- dns example.com --type a,mx --server 1.1.1.1    # records, timed, a
 cargo run -- dns example.com --whois --report out.pdf        # with who registered it, as a PDF
 cargo run -- lanspeed --serve                                # wait for a client on port 5201, tcp and udp
 cargo run -- lanspeed --connect 192.168.1.20 --udp --bitrate 500 --streams 4 --time 30 --plain
+cargo run -- calc 192.168.1.0 255.255.252.0                 # the subnet worked out, printed (IPv6 too)
 cargo run -- wake aa:bb:cc:dd:ee:ff --broadcast 192.168.1.255    # the magic packet, one line, exit
 cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
 cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
@@ -278,6 +280,11 @@ the OS's default drops datagrams at a few hundred Mbps. Everything is std socket
 timed with `Instant`; `--count` and `--wait` repeat runs like `speedtest`. Checked over loopback
 only, so far.
 
+`calc SUBNET [MASK]`: reads an address with a prefix (`/22`) or a mask (after a slash or a
+space), works out the rows in `calc.rs` (u128 sums, so IPv4 and IPv6 share them) and prints them
+like `dns` does (`ui/calc.rs`, through `ui::print_lines`). A /31 has both addresses usable and no
+broadcast (RFC 3021). No network, no screen, no report.
+
 `wake MAC...`: reads every MAC first (through `normalize_mac`, so any format the sweep reads),
 then broadcasts each its magic packet (six `0xff` bytes, the MAC sixteen times) over UDP to
 `--broadcast` (255.255.255.255 unless told) on `--port` (9), prints a line a MAC and exits.
@@ -342,6 +349,7 @@ src/
     servers.rs           which name servers to ask: typed, or the system's (resolv.conf, GetNetworkParams)
     lookup.rs            one question to one server over UDP or TCP, timed; the domain's own server
     whois.rs             whois over port 43: IANA, the registry, the registrar, and the fields worth showing
+  calc.rs                the subnet calculator: parsing the prefix or mask, the rows it prints, no UI
   wake.rs                Wake-on-LAN: the magic packet and the broadcast that sends it, no UI
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
@@ -365,6 +373,7 @@ src/
     ping.rs              the ping screen: each host's totals, a row a ping, a graph a host
     trace.rs             the trace screen: how far and where loss starts, a row a hop
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
+    calc.rs              the subnet printed to the terminal: a row a value
     lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain, and the words in each cell

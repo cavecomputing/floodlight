@@ -7,14 +7,9 @@ use crate::dns::whois::Whois;
 use crate::ui::theme::TERMINAL;
 use hickory_proto::op::ResponseCode;
 use hickory_proto::rr::{RData, Record};
-use ratatui::backend::IntoCrossterm;
-use ratatui::crossterm::style::StyledContent;
 use ratatui::text::{Line, Span};
-use std::io::IsTerminal;
 
 pub fn print(lookups: &[Lookup], whois: Option<&Result<Whois, String>>, plain: bool) {
-    let styled =
-        !plain && std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
     let mut lines = Vec::new();
     for lookup in lookups {
         lines.extend(lookup_lines(lookup));
@@ -25,18 +20,7 @@ pub fn print(lookups: &[Lookup], whois: Option<&Result<Whois, String>>, plain: b
         lines.push(Line::default());
     }
     lines.pop();
-    for line in lines {
-        match styled {
-            true => {
-                for span in &line.spans {
-                    let style = line.style.patch(span.style).into_crossterm();
-                    print!("{}", StyledContent::new(style, &span.content));
-                }
-                println!();
-            }
-            false => println!("{line}"),
-        }
-    }
+    crate::ui::print_lines(lines, plain);
 }
 
 /// `example.com · a · system (192.168.1.1) · udp · 12.3 ms`

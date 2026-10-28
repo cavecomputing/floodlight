@@ -2,6 +2,7 @@
 //! table when asked for plain output, or writes its report).
 
 mod brand;
+mod calc;
 mod dns;
 mod lanspeed;
 mod os;
@@ -165,6 +166,14 @@ enum Mode {
         /// Also ask whois who registered the domain, or who holds the address.
         #[arg(long)]
         whois: bool,
+    },
+    /// Work out a subnet: its network, broadcast, usable range, host count, mask and wildcard.
+    Calc {
+        /// The subnet, as an address and a prefix length, like 10.0.4.0/22, 192.168.1.50/24 or
+        /// 2001:db8::/48, or an address and a mask, like 192.168.1.0/255.255.252.0.
+        subnet: String,
+        /// The mask, when it comes after the address instead of a slash, like 255.255.252.0.
+        mask: Option<String>,
     },
     /// Wake a sleeping machine with a Wake-on-LAN magic packet, broadcast to its MAC address.
     Wake {
@@ -332,6 +341,17 @@ fn main() -> anyhow::Result<()> {
             ui::dns::print(&lookups, whois.as_ref(), args.plain);
             Ok(())
         }
+        Mode::Calc { subnet, mask } => {
+            if args.report.is_some() {
+                bail!("calc has nothing to report: it prints the subnet worked out");
+            }
+            let typed = match mask {
+                Some(mask) => format!("{subnet} {mask}"),
+                None => subnet,
+            };
+            ui::calc::print(&calc::parse(&typed)?, args.plain);
+            Ok(())
+        }
         Mode::Wake {
             macs,
             broadcast,
@@ -449,6 +469,9 @@ mod tests {
         ));
         // A MAC is needed, and the broadcast address is an address.
         assert!(Args::try_parse_from([brand::BIN, "wake"]).is_err());
+        let calc = ["calc", "192.168.1.0", "255.255.252.0"];
+        let args = Args::try_parse_from([brand::BIN].into_iter().chain(calc)).expect("a subnet");
+        assert!(matches!(args.mode, Mode::Calc { mask: Some(_), .. }));
         let named = ["wake", "aa:bb:cc:dd:ee:ff", "--broadcast", "lan"];
         assert!(Args::try_parse_from([brand::BIN].into_iter().chain(named)).is_err());
     }

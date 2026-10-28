@@ -30,6 +30,7 @@ mode's own options.
 | [`trace`](#trace) | the route to a host, hop by hop, round after round: each router's round trips and the share lost, and where loss starts |
 | [`dns`](#dns) | a name's records from the system's name server or any other, timed, authoritative or not, and its whois |
 | [`lanspeed`](#lanspeed) | the throughput between this machine and another on the LAN, iperf-style, over TCP or UDP |
+| [`calc`](#calc) | a subnet worked out: network, broadcast, usable range, host count, mask and wildcard |
 | [`wake`](#wake) | a Wake-on-LAN magic packet to wake a sleeping machine by its MAC |
 
 | Shared option | What it does |
@@ -303,6 +304,23 @@ talks only to another copy of Floodlight, not to iperf, since the two don't spea
 protocol. UDP at `--bitrate 0` sends as fast as the machine can, which floods most links and shows
 up as loss; a rate just under what TCP reached is the useful test. The server's port has to be
 open on its firewall, TCP and UDP both.
+
+## calc
+
+Works out a subnet from an address and its prefix or mask, prints it and exits: the network, the
+broadcast, the first and last usable addresses, how many hosts that makes, the netmask, the
+wildcard (the mask inverted, as Cisco ACLs and OSPF want it), the prefix, and what kind of address
+it is (private, public, carrier-grade NAT, link-local...). A /31 is a point-to-point link, so both
+its addresses are usable and it has no broadcast; a /32 is one host. IPv6 works too, with the
+first and last address and how many there are.
+
+```bash
+floodlight calc 10.0.4.0/22                      # an address and a prefix length
+floodlight calc 192.168.1.50/24                  # any address in the subnet finds its network
+floodlight calc 192.168.1.0 255.255.252.0        # an address and a mask (or 192.168.1.0/255.255.252.0)
+floodlight calc 2001:db8::/48                    # IPv6
+floodlight calc 10.0.4.0/22 --plain              # without colour
+```
 
 ## wake
 
