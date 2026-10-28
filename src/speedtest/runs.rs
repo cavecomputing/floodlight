@@ -150,9 +150,15 @@ impl Runs {
         }
     }
 
-    /// The median of one result across the runs that measured it.
+    /// The median of one result across the runs that measured it. A failed run's partial
+    /// numbers (one cut short by Cloudflare's limit, say) are left out.
     pub fn median(&self, result: fn(&Run) -> Option<f32>) -> Option<f32> {
-        let values: Vec<f32> = self.runs.iter().filter_map(result).collect();
+        let values: Vec<f32> = self
+            .runs
+            .iter()
+            .filter(|run| run.failed.is_none())
+            .filter_map(result)
+            .collect();
         percentile(&values, 0.5)
     }
 
@@ -231,10 +237,17 @@ fn run_all(count: u32, wait: Duration, tx: Sender<Event>) {
             std::thread::sleep(wait);
         }
         let _ = tx.send(Event::Started);
-        let _ = tx.send(match run(&mut agent, &tx) {
+        let outcome = run(&mut agent, &tx);
+        // Cloudflare's limit is on this machine for a while, so the runs after would only be
+        // refused too.
+        let limited = matches!(&outcome, Err(why) if why.starts_with(cloudflare::LIMITED));
+        let _ = tx.send(match outcome {
             Ok(()) => Event::Finished,
             Err(why) => Event::Failed(why),
         });
+        if limited {
+            break;
+        }
     }
     let _ = tx.send(Event::Done);
 }
@@ -282,13 +295,10 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
             let took = match transfer(agent, phase, bytes / streams, &body, streams) {
                 Ok(took) => took,
                 // Cloudflare's firewall sometimes refuses a transfer partway through a run,
-                // whichever way it goes, or says this machine has fetched enough for a while.
-                // What that direction measured so far stands, and the other carries on; only a
-                // refusal before anything was measured fails the run.
-                Err(why)
-                    if why.starts_with(cloudflare::REFUSED)
-                        || why.starts_with(cloudflare::LIMITED) =>
-                {
+                // whichever way it goes. What that direction measured so far stands, and the
+                // other carries on; only a refusal before anything was measured fails the run.
+                // Its limit (429) fails the run: it holds for both directions.
+                Err(why) if why.starts_with(cloudflare::REFUSED) => {
                     let some = match phase {
                         Phase::Upload => uploads > 0,
                         _ => downloads > 0,
@@ -405,6 +415,8 @@ mod tests {
             Event::Finished,
             Event::Waiting(Duration::from_secs(5)),
             Event::Started,
+            // Cut short by Cloudflare's limit: what it got this far reads low.
+            Event::Download(80.0),
             Event::Failed("cloudflare answered 429".to_string()),
             Event::Done,
         ] {
@@ -416,6 +428,7 @@ mod tests {
         assert_eq!(runs.runs[1].phase, None);
         assert!(runs.runs[1].failed.is_some());
         assert_eq!(runs.median(Run::latency), Some(10.0));
+        assert_eq!(runs.median(Run::download), Some(200.0));
         assert!(runs.done);
     }
 }

@@ -199,15 +199,21 @@ every request of a size takes over a second, reporting the 90th percentile. From
 transfer is split over four connections at once (a thread each, a quarter of the size each, the
 slowest one's time), since one connection and one thread's TLS top out well under a gigabit; the
 page's own single stream does too, which is why it reads low against fast.com on a fast line.
-Splitting keeps a run's data to what the page moves: four times that set off Cloudflare's limit. The method follows the
-npm package `@cloudflare/speedtest` (the page's engine): the server's time from each answer's
+Splitting keeps a run's data to what the page moves: four times that set off Cloudflare's limit.
+The four connections are opened untimed before the first split transfer and kept open between
+them (ureq keeps only 3 idle a host unless told), so no transfer times a TLS setup. The method
+follows the npm package `@cloudflare/speedtest` (the page's engine): every request carries the
+page's `referer` (other clients were limited without it), the server's time from each answer's
 `server-timing` header comes off downloads and pings, uploads post the text `0` to
 `__up?bytes=N` and are timed to the answer, 429s are waited out and retried when they ask for
 10 s or less. Cloudflare answers 429 with `retry-after: 3600` once a machine has run many tests in
-a short while; that, and a 403 (Cloudflare's firewall, seen partway through real runs) that stands
-after one more try on a fresh connection, leave that direction with what it measured, and the run
-fails only when it had measured nothing. It speaks HTTPS
-through the ureq crate on a thread of its own, one kept-open connection, cookies kept, no gzip.
+a short while; that fails the run, saying so, and no further runs start, since the limit holds for
+the machine. A 403 (Cloudflare's firewall, seen partway through real runs) that stands after one
+more try on a fresh connection leaves that direction with what it measured, and the run fails
+only when it had measured nothing. A failed run's partial numbers stay in its row but out of the
+medians. It speaks HTTPS through the ureq crate on a thread of its own, connections kept open,
+cookies kept, no gzip. Cloudflare publishes no limits or terms for this; they have changed
+without notice (the server-timing format, the referer), so check its own engine when it breaks.
 `--count N` runs it N times, `--wait SECONDS` apart (5 by default); Ctrl+R runs the same again once it is done.
 
 `--ping [HOST]...`: pings up to five hosts (names or IPv4 addresses; the gateway from the OS's

@@ -182,7 +182,10 @@ fn refusal(answer: &mut Response<Body>) -> String {
     let status = answer.status().as_u16();
     let mut words = format!("cloudflare answered {status}");
     if status == 429 {
-        words.push_str(" · too many tests from this machine lately, try again in a few minutes");
+        let minutes = retry_after(answer).as_secs().div_ceil(60);
+        words.push_str(&format!(
+            " · cloudflare is limiting tests from this machine and asks it to wait {minutes} min"
+        ));
     }
     let header = |name: &str| -> Option<String> {
         let value = answer.headers().get(name)?.to_str().ok()?;
