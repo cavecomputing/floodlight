@@ -1,6 +1,6 @@
 //! The graph every live screen draws: one value across the runs, pings or intervals, a dot
-//! each on a scale of round steps over a baseline, numbered along the bottom. The speed test,
-//! ping and LAN speed screens all draw theirs through it.
+//! each on a scale from 0 in steps of 5 over a baseline, numbered along the bottom. The speed
+//! test, ping and LAN speed screens all draw theirs through it.
 
 use crate::ui::theme::Roles;
 use ratatui::Frame;
@@ -20,8 +20,8 @@ const DOT: &str = "•";
 /// The mark a lost value leaves on the baseline, when the graph is asked to show losses.
 const LOST: &str = "×";
 
-/// One result across the runs, pings or intervals: a dot each, two columns apart, on a scale of
-/// round steps that hugs the values, each step a faint dotted line. The lines and the baseline
+/// One result across the runs, pings or intervals: a dot each, two columns apart, on a scale
+/// from 0 in steps of 5 (or more when the rows run out), each step a faint dotted line. The lines and the baseline
 /// reach only as far as the dots do, and the numbers of the points run under the baseline. A
 /// missing value leaves a gap, or a `×` on the baseline when `lost` (a ping that didn't come
 /// back). The latest values win when there are more than fit. The plot takes every row of `area`
@@ -50,24 +50,23 @@ pub fn graph(
     let fit = (area.width - SCALE).div_ceil(STEP) as usize;
     let skipped = values.len().saturating_sub(fit);
     let shown = &values[skipped..];
-    let (bottom, step, steps) = scale(shown, rows);
+    let (step, steps) = scale(shown, rows);
     // The same number of rows from one step to the next; any left over stay empty at the top.
     let per_step = ((rows - 1) as u32 / steps) as f32;
     let top_row = per_step * steps as f32;
     let last = area.y + 2 + rows - 1;
     let row = |value: f32| {
-        let up = ((value - bottom) / step * per_step).round();
+        let up = (value / step * per_step).round();
         last - up.clamp(0.0, top_row) as u16
     };
     let column = |i: usize| area.x + SCALE + i as u16 * STEP;
     let width = shown.len().saturating_sub(1) * STEP as usize + 1;
-    let decimals = decimals(step);
     let buffer = frame.buffer_mut();
 
     for tick in 0..=steps {
-        let value = bottom + step * tick as f32;
+        let value = step * tick as f32;
         let y = row(value);
-        let label = format!("{value:>5.decimals$}");
+        let label = format!("{value:>5}");
         buffer.set_string(area.x, y, label, roles.comment());
         match tick {
             0 => buffer.set_string(column(0), y, "─".repeat(width), roles.rule()),
@@ -104,46 +103,23 @@ pub fn graph(
     }
 }
 
-/// The scale for `values` on `rows` rows: its bottom, the round step from one label to the
-/// next (1, 2, 2.5 or 5 times a power of ten), and how many steps it climbs. It hugs the values
-/// rather than starting at 0, so a few ms of jitter at 20 ms shows, and it is never narrower than
-/// a fifth of the largest value, so a steady line doesn't swing from top to bottom. A label every
-/// four rows or more.
-fn scale(values: &[Option<f32>], rows: u16) -> (f32, f32, u32) {
-    let (low, high) = values
-        .iter()
-        .flatten()
-        .fold((f32::MAX, 0.0f32), |(low, high), value| {
-            (low.min(*value), high.max(*value))
-        });
-    if high <= 0.0 {
-        return (0.0, 1.0, 1);
-    }
-    let pad = (high * 0.2 - (high - low)).max(0.0) / 2.0;
-    let (low, high) = ((low - pad).max(0.0), high + pad);
-    let most_steps = ((rows - 1) / 4).max(2) as u32;
-    let mut power = 10f32.powf(((high - low) / most_steps as f32).log10().floor());
+/// The scale for `values` on `rows` rows, from 0: the step from one label to the next and how
+/// many steps it climbs. The step is 5 while a label every two rows fits, then 10, 25, 50, 100,
+/// 250 and so on.
+fn scale(values: &[Option<f32>], rows: u16) -> (f32, u32) {
+    let high = values.iter().flatten().copied().fold(0.0, f32::max);
+    let most_steps = ((rows - 1) / 2).max(1) as u32;
+    let mut power = 1.0;
     loop {
-        for times in [1.0, 2.0, 2.5, 5.0] {
+        for times in [5.0, 10.0, 25.0] {
             let step = times * power;
-            let bottom = (low / step).floor() * step;
-            let steps = (((high - bottom) / step).ceil() as u32).max(1);
+            let steps = ((high / step).ceil() as u32).max(1);
             if steps <= most_steps {
-                return (bottom, step, steps);
+                return (step, steps);
             }
         }
         power *= 10.0;
     }
-}
-
-/// Decimal places a label needs to show `step` exactly: 0 for 5, 1 for 2.5, 2 for 0.25.
-fn decimals(step: f32) -> usize {
-    (0..3)
-        .find(|places| {
-            let shifted = step * 10f32.powi(*places as i32);
-            (shifted - shifted.round()).abs() < 0.01
-        })
-        .unwrap_or(3)
 }
 
 #[cfg(test)]
@@ -215,14 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn the_scale_hugs_the_values_in_round_steps() {
-        // Jitter at 20 ms fills the graph rather than sitting in a line at the top.
-        assert_eq!(scale(&[Some(20.0), Some(25.0)], 20), (20.0, 2.0, 3));
-        // Values near 0 start at 0.
-        assert_eq!(scale(&[Some(0.4), None, Some(3.2)], 20), (0.0, 1.0, 4));
-        // One value sits inside a scale a fifth of its size, not on its edge.
-        assert_eq!(scale(&[Some(240.0)], 6), (200.0, 50.0, 2));
-        assert_eq!(scale(&[None], 6), (0.0, 1.0, 1));
-        assert_eq!((decimals(5.0), decimals(2.5), decimals(0.25)), (0, 1, 2));
+    fn the_scale_climbs_from_0_in_fives_while_they_fit() {
+        assert_eq!(scale(&[Some(1.2), None, Some(3.2)], 20), (5.0, 1));
+        assert_eq!(scale(&[Some(41.0), Some(52.0)], 30), (5.0, 11));
+        // Too many fives for the rows: tens, then twenty-fives.
+        assert_eq!(scale(&[Some(52.0)], 9), (25.0, 3));
+        assert_eq!(scale(&[Some(124.5)], 20), (25.0, 5));
+        assert_eq!(scale(&[Some(940.0)], 6), (500.0, 2));
+        assert_eq!(scale(&[None], 6), (5.0, 1));
     }
 }

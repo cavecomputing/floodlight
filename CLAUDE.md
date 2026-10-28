@@ -388,7 +388,7 @@ src/
                          graph a direction) and the server's (a row a test served, a graph each way)
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     graph.rs             the graph the speed test, ping and lanspeed screens share: a dot a value on
-                         a scale of round steps that hugs the values, numbered along the bottom,
+                         a scale from 0 in steps of 5 (or 10, 25, 50...), numbered along the bottom,
                          a gap (or a `×` for a lost ping) where a value is missing
     plain.rs             the tables printed to stdout for --plain, and the words in each cell
 ```
