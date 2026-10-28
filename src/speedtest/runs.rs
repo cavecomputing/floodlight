@@ -29,7 +29,8 @@ const SEQUENCE: [(Phase, usize, usize); 11] = [
 const LONG_ENOUGH: Duration = Duration::from_secs(1);
 /// Transfers at once from this size up. One connection seldom fills a fast line (its TCP window
 /// and a single thread's TLS cap it well under a gigabit), so the big sizes go over several,
-/// the way fast.com and Ookla measure, and their bytes count together.
+/// the way fast.com and Ookla measure. The size is split between them, so a run moves what
+/// Cloudflare's page moves: four times that set off its limit (429) after a few runs.
 const STREAMS_FROM: usize = 10_000_000;
 const STREAMS: usize = 4;
 
@@ -263,15 +264,15 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
             continue;
         }
         send(Event::Phase(phase));
+        let streams = if bytes >= STREAMS_FROM { STREAMS } else { 1 };
         let body = match phase {
             // The character 0 over and over, the text Cloudflare's page sends.
-            Phase::Upload => vec![b'0'; bytes],
+            Phase::Upload => vec![b'0'; bytes / streams],
             _ => Vec::new(),
         };
-        let streams = if bytes >= STREAMS_FROM { STREAMS } else { 1 };
         let mut quickest = Duration::MAX;
         for _ in 0..times {
-            let took = match transfer(agent, phase, bytes, &body, streams) {
+            let took = match transfer(agent, phase, bytes / streams, &body, streams) {
                 Ok(took) => took,
                 // Cloudflare's firewall sometimes refuses a transfer partway through a run,
                 // whichever way it goes, or says this machine has fetched enough for a while.
@@ -298,7 +299,7 @@ fn run(agent: &mut Agent, tx: &Sender<Event>) -> Result<(), String> {
                 _ => downloads += 1,
             }
             quickest = quickest.min(took);
-            match (phase, cloudflare::mbps(bytes * streams, took)) {
+            match (phase, cloudflare::mbps(bytes, took)) {
                 (Phase::Upload, Some(mbps)) => send(Event::Upload(mbps)),
                 (_, Some(mbps)) => send(Event::Download(mbps)),
                 (_, None) => {}

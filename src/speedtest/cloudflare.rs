@@ -176,6 +176,9 @@ fn answered(
 fn refusal(answer: &mut Response<Body>) -> String {
     let status = answer.status().as_u16();
     let mut words = format!("cloudflare answered {status}");
+    if status == 429 {
+        words.push_str(" · too many tests from this machine lately, try again in a few minutes");
+    }
     let header = |name: &str| -> Option<String> {
         let value = answer.headers().get(name)?.to_str().ok()?;
         Some(value.to_string())

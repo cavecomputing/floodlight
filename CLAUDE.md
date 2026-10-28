@@ -196,14 +196,17 @@ Ctrl+R forgets them and starts over. `--plain` prints one scan.
 goes: latency and jitter from 20 empty requests, then Cloudflare's own page's sequence of
 downloads and uploads taking turns as they grow (100 kB up to 250 MB), each direction stopping once
 every request of a size takes over a second, reporting the 90th percentile. From 10 MB up a
-transfer goes over four connections at once (a thread each, the slowest one's time, their bytes
-summed), since one connection and one thread's TLS top out well under a gigabit; the page's own
-single stream does too, which is why it reads low against fast.com on a fast line. The method follows the
+transfer is split over four connections at once (a thread each, a quarter of the size each, the
+slowest one's time), since one connection and one thread's TLS top out well under a gigabit; the
+page's own single stream does too, which is why it reads low against fast.com on a fast line.
+Splitting keeps a run's data to what the page moves: four times that set off Cloudflare's limit. The method follows the
 npm package `@cloudflare/speedtest` (the page's engine): the server's time from each answer's
 `server-timing` header comes off downloads and pings, uploads post the text `0` to
-`__up?bytes=N` and are timed to the answer, 429s are waited out and retried. A 403 (Cloudflare's
-firewall, seen partway through real runs) is tried once more on a fresh connection; if it stands,
-that direction keeps what it measured and the run fails only when it had measured nothing. It speaks HTTPS
+`__up?bytes=N` and are timed to the answer, 429s are waited out and retried when they ask for
+10 s or less. Cloudflare answers 429 with `retry-after: 3600` once a machine has run many tests in
+a short while; that, and a 403 (Cloudflare's firewall, seen partway through real runs) that stands
+after one more try on a fresh connection, leave that direction with what it measured, and the run
+fails only when it had measured nothing. It speaks HTTPS
 through the ureq crate on a thread of its own, one kept-open connection, cookies kept, no gzip.
 `--count N` runs it N times, `--wait SECONDS` apart (5 by default); Ctrl+R runs the same again once it is done.
 

@@ -125,9 +125,9 @@ as 20 MHz. Recent Windows may refuse to list networks until the terminal has loc
 Tests the internet connection against [Cloudflare's speed test](https://speed.cloudflare.com), the
 way its own page does: 20 small requests for latency (the middle one) and jitter (how much one
 differs from the next), then downloads and uploads taking turns, from 100 kB up to 250 MB, until
-every request of a size takes over a second. From 10 MB up, each transfer goes over four
-connections at once and their bytes count together, the way fast.com and Ookla measure, since one
-connection rarely fills a fast line. The speed is the 90th percentile of those transfers, as Cloudflare reports it, so the small
+every request of a size takes over a second. From 10 MB up, each transfer is split over four
+connections at once, the way fast.com and Ookla measure, since one connection rarely fills a fast
+line; a run still moves no more data than Cloudflare's own page. The speed is the 90th percentile of those transfers, as Cloudflare reports it, so the small
 ones that never fill the link don't drag it down.
 
 ```
