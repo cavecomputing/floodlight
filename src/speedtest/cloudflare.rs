@@ -126,7 +126,9 @@ pub fn read_server_time(header: &str) -> Option<Duration> {
 /// With 0 bytes that is the round trip.
 pub fn download(agent: &Agent, bytes: usize) -> Result<Duration, String> {
     let url = format!("{HOST}/__down?bytes={bytes}");
-    let (started, mut answer) = answered(|| agent.get(&url).call())?;
+    // As the page sends it: other clients started being limited (429) without it.
+    let (started, mut answer) =
+        answered(|| agent.get(&url).header("referer", format!("{HOST}/")).call())?;
     let server = server_time(&answer);
     io::copy(&mut answer.body_mut().as_reader(), &mut io::sink()).map_err(|e| e.to_string())?;
     Ok(started.elapsed().saturating_sub(server))
