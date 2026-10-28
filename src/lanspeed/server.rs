@@ -57,7 +57,7 @@ fn answer(stream: TcpStream, pending: &Pending, busy: &AtomicBool, udp: &Arc<Udp
             .map(|(_, token)| *token)
             .unwrap_or_default();
         if let Some(streams) = pending.lock().expect("pending tests").get(token) {
-            let _ = streams.send(control.into_stream());
+            let _ = streams.send(control.into_inner());
         }
         return;
     }
@@ -219,13 +219,6 @@ fn rand() -> u128 {
         .map_or(0, |since| since.as_nanos());
     let fresh = Box::new(0u8);
     now ^ ((&*fresh as *const u8 as usize as u128) << 32)
-}
-
-impl Lines {
-    /// The connection itself, for a data stream that only said which test it joins.
-    pub fn into_stream(self) -> TcpStream {
-        self.into_inner()
-    }
 }
 
 #[cfg(test)]

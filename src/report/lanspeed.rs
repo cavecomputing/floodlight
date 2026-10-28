@@ -3,7 +3,7 @@
 //! table of every run.
 
 use super::sheet::{self, AQUA, COOL, Cell, Column, FG, MUTED, SUBTLE, Sheet};
-use super::speedtest::chart;
+use super::speedtest::{chart, range};
 use crate::lanspeed::runs::{self, Event, Run, Runs, Settings};
 use crate::lanspeed::wire::{Direction, Protocol, Report};
 use crate::ui::plain;
@@ -44,10 +44,6 @@ pub fn write(path: &Path, settings: Settings, count: u32, wait: Duration) -> any
     Ok(())
 }
 
-fn mbps(value: Option<f32>) -> String {
-    value.map_or("—".to_string(), |mbps| format!("{mbps:.1} Mbps"))
-}
-
 /// The report's PDF file.
 pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
     let (date, time) = sheet::now();
@@ -56,9 +52,9 @@ pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
     let up = runs.median(Run::upload_mbps);
     let down = runs.median(Run::download_mbps);
     let title = match (up, down) {
-        (Some(_), Some(_)) => format!("{} up · {} down", mbps(up), mbps(down)),
-        (Some(_), None) => format!("{} up", mbps(up)),
-        (None, Some(_)) => format!("{} down", mbps(down)),
+        (Some(_), Some(_)) => format!("{} up · {} down", plain::mbps(up), plain::mbps(down)),
+        (Some(_), None) => format!("{} up", plain::mbps(up)),
+        (None, Some(_)) => format!("{} down", plain::mbps(down)),
         (None, None) => "nothing measured".to_string(),
     };
     let subtitle = format!(
@@ -114,14 +110,14 @@ pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
                     .collect();
                 let ends: Vec<&str> = ends.iter().map(String::as_str).collect();
                 let values = intervals.iter().map(|report| Some(report.mbps())).collect();
-                let title = format!("{} through the transfer", capital(direction.name()));
+                let title = format!("{} through the transfer", titled(*direction));
                 chart(&mut sheet, &title, &ends, values, "Mbps", ink);
             }
             // Several: each run's total.
             _ => {
                 let times: Vec<&str> = runs.runs.iter().map(|run| run.time.as_str()).collect();
                 let values = runs.runs.iter().map(|run| run.mbps(*direction)).collect();
-                let title = format!("{} across runs", capital(direction.name()));
+                let title = format!("{} across runs", titled(*direction));
                 chart(&mut sheet, &title, &times, values, "Mbps", ink);
             }
         }
@@ -132,8 +128,8 @@ pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
         .iter()
         .map(|run| {
             let ink = |words: &str, ink| if words == "—" { SUBTLE } else { ink };
-            let up = mbps(run.upload_mbps());
-            let down = mbps(run.download_mbps());
+            let up = plain::mbps(run.upload_mbps());
+            let down = plain::mbps(run.download_mbps());
             let jitter = run
                 .jitter()
                 .map_or("—".to_string(), |ms| format!("{ms:.2} ms"));
@@ -159,11 +155,11 @@ pub fn document(runs: &Runs, settings: &Settings, wait: Duration) -> Vec<u8> {
     sheet.finish()
 }
 
-fn capital(word: &str) -> String {
-    let mut chars = word.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+/// The direction as a chart's title starts it.
+fn titled(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Upload => "Upload",
+        Direction::Download => "Download",
     }
 }
 
@@ -240,14 +236,6 @@ fn summary(runs: &Runs, settings: &Settings, wait: Duration) -> String {
         text.push_str(&format!(" The run at {} failed: {why}.", run.time));
     }
     text
-}
-
-/// `210.4 to 250.3 Mbps`: the slowest and fastest of one result across the runs.
-fn range(runs: &[&Run], result: fn(&Run) -> Option<f32>) -> String {
-    let values: Vec<f32> = runs.iter().filter_map(|run| result(run)).collect();
-    let slowest = values.iter().copied().fold(f32::MAX, f32::min);
-    let fastest = values.iter().copied().fold(0.0, f32::max);
-    format!("{slowest:.1} to {fastest:.1} Mbps")
 }
 
 #[cfg(test)]

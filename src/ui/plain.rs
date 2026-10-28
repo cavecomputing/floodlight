@@ -134,9 +134,6 @@ pub fn speedtest(count: u32, wait: Duration) -> anyhow::Result<()> {
 /// A run's time, latency, jitter, download, upload and server (or why it failed) as the printed
 /// tables write them.
 pub fn run_words(run: &Run) -> [String; 6] {
-    let ms = |value: Option<f32>| value.map_or("—".to_string(), |ms| format!("{ms:.1} ms"));
-    let mbps =
-        |value: Option<f32>| value.map_or("—".to_string(), |mbps| format!("{mbps:.1} Mbps"));
     let server = match (&run.failed, &run.server) {
         (Some(why), _) => format!("failed: {why}"),
         (None, Some(server)) => server.place(),
@@ -260,6 +257,16 @@ pub fn lanspeed_row(direction: Direction, report: &Report, total: bool) -> Vec<S
     words
 }
 
+/// `941.2 Mbps`, or `—` for a speed not measured.
+pub fn mbps(value: Option<f32>) -> String {
+    value.map_or("—".to_string(), |mbps| format!("{mbps:.1} Mbps"))
+}
+
+/// `12.3 ms`, or `—` for a time not measured.
+pub fn ms(value: Option<f32>) -> String {
+    value.map_or("—".to_string(), |ms| format!("{ms:.1} ms"))
+}
+
 /// `1.2 GB`, `117.0 MB`, `350 kB`: the bytes moved.
 pub fn bytes_words(bytes: u64) -> String {
     match bytes {
@@ -273,7 +280,6 @@ pub fn bytes_words(bytes: u64) -> String {
 /// 0, it pings until stopped, like the OS's own ping). With several hosts each row says which.
 pub fn ping(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()> {
     let ips: Vec<Ipv4Addr> = targets.iter().map(|target| target.ip).collect();
-    let events = pings::start(&ips, count, wait).map_err(anyhow::Error::msg)?;
     println!("# {}", ping_headline(targets, count, wait));
     // The host column, only when there is more than one.
     let labels = ping_labels(targets);
@@ -282,12 +288,11 @@ pub fn ping(targets: &[Target], count: u32, wait: Duration) -> anyhow::Result<()
         _ => format!("{label:<width$}  ", width = labels[0].chars().count()),
     };
     println!("{:>5}  {:<8}  {}latency", "seq", "time", host("host"));
-    let mut pings: Vec<Pings> = targets.iter().map(|_| Pings::default()).collect();
-    for ping in events {
-        let [seq, time, latency] = ping_words(&ping);
+    let pings = pings::finished(&ips, count, wait, |ping| {
+        let [seq, time, latency] = ping_words(ping);
         println!("{seq:>5}  {time:<8}  {}{latency}", host(&labels[ping.host]));
-        pings[ping.host].pings.push(ping);
-    }
+    })
+    .map_err(anyhow::Error::msg)?;
     for line in ping_totals_lines(targets, &pings) {
         println!("# {line}");
     }

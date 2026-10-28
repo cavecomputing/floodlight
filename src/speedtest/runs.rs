@@ -179,8 +179,9 @@ pub fn jitter(round_trips: &[f32]) -> Option<f32> {
 }
 
 /// The value `share` of the way up the sorted values (0.5 is the median), part way between the
-/// two nearest when it falls between them, as Cloudflare's page works it out.
-fn percentile(values: &[f32], share: f32) -> Option<f32> {
+/// two nearest when it falls between them, as Cloudflare's page works it out. The LAN speed
+/// test takes its medians the same way.
+pub fn percentile(values: &[f32], share: f32) -> Option<f32> {
     let mut sorted = values.to_vec();
     sorted.sort_by(f32::total_cmp);
     let place = sorted.len().checked_sub(1)? as f32 * share;

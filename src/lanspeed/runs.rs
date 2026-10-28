@@ -4,6 +4,7 @@
 
 use super::transfer;
 use super::wire::{self, Datagram, Direction, Protocol, Report, Test};
+use crate::speedtest::runs::percentile;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
@@ -167,19 +168,13 @@ impl Runs {
     /// The median of one result across the runs that measured it. A failed run's partial
     /// numbers are left out.
     pub fn median(&self, result: fn(&Run) -> Option<f32>) -> Option<f32> {
-        let mut values: Vec<f32> = self
+        let values: Vec<f32> = self
             .runs
             .iter()
             .filter(|run| run.failed.is_none())
             .filter_map(result)
             .collect();
-        values.sort_by(f32::total_cmp);
-        let middle = values.len().checked_sub(1)? as f32 / 2.0;
-        let (below, above) = (
-            values[middle.floor() as usize],
-            values[middle.ceil() as usize],
-        );
-        Some((below + above) / 2.0)
+        percentile(&values, 0.5)
     }
 
     /// Every interval measured so far one way, across the runs, for the graphs.
@@ -374,6 +369,7 @@ impl Lines {
         }
     }
 
+    /// The connection itself, for a data stream that only said which test it joins.
     pub fn into_inner(self) -> TcpStream {
         self.reader.into_inner()
     }

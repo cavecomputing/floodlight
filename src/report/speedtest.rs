@@ -42,14 +42,11 @@ pub fn write(path: &Path, count: u32, wait: Duration) -> anyhow::Result<()> {
 pub fn document(runs: &Runs, wait: Duration) -> Vec<u8> {
     let (date, time) = sheet::now();
     let mut sheet = Sheet::new(format!("Speed test · {date} {time}"));
-    let mbps =
-        |value: Option<f32>| value.map_or("—".to_string(), |mbps| format!("{mbps:.1} Mbps"));
-    let ms = |value: Option<f32>| value.map_or("—".to_string(), |ms| format!("{ms:.1} ms"));
 
     let title = format!(
         "{} down · {} up",
-        mbps(runs.median(Run::download)),
-        mbps(runs.median(Run::upload))
+        plain::mbps(runs.median(Run::download)),
+        plain::mbps(runs.median(Run::upload))
     );
     let subtitle = match runs.server() {
         Some(server) => {
@@ -64,8 +61,8 @@ pub fn document(runs: &Runs, wait: Duration) -> Vec<u8> {
     let mut facts = vec![
         ("date", date),
         ("time", time),
-        ("latency", ms(runs.median(Run::latency))),
-        ("jitter", ms(runs.median(Run::jitter))),
+        ("latency", plain::ms(runs.median(Run::latency))),
+        ("jitter", plain::ms(runs.median(Run::jitter))),
     ];
     if runs.runs.len() > 1 {
         let apart = format!("{}, {} s apart", runs.runs.len(), wait.as_secs());
@@ -231,8 +228,9 @@ fn summary(runs: &Runs, wait: Duration) -> String {
     text
 }
 
-/// `210.4 to 250.3 Mbps`: the slowest and fastest of one result across the runs.
-fn range(runs: &[&Run], result: fn(&Run) -> Option<f32>) -> String {
+/// `210.4 to 250.3 Mbps`: the slowest and fastest of one result across the runs. The LAN speed
+/// report says its ranges the same way.
+pub(super) fn range<R>(runs: &[&R], result: fn(&R) -> Option<f32>) -> String {
     let values: Vec<f32> = runs.iter().filter_map(|run| result(run)).collect();
     let slowest = values.iter().copied().fold(f32::MAX, f32::min);
     let fastest = values.iter().copied().fold(0.0, f32::max);
