@@ -296,11 +296,14 @@ floodlight lanspeed --connect 192.168.1.20 --download    # one way only (--uploa
 floodlight lanspeed --connect 192.168.1.20 --count 3 --wait 60       # three runs, a minute apart
 floodlight lanspeed --serve --port 5300                  # another port (5201, iperf's, by default; same on both ends)
 floodlight lanspeed --connect 192.168.1.20 --plain       # print each row as it arrives
+floodlight lanspeed --serve --plain                      # print a line a test served, no screen
 floodlight lanspeed --connect 192.168.1.20 --report lan.pdf    # write it as a PDF report
 ```
 
-The server prints a line a test and takes one at a time; a second client is told it is busy. It
-talks only to another copy of Floodlight, not to iperf, since the two don't speak the same
+The server has a screen of its own: a row a test served (when, which client, tcp or udp, which
+way, the streams, seconds and UDP rate asked for, then the bitrate, transfer, jitter and loss as
+they come), with a graph of what it received and one of what it sent; `--plain` prints a line a
+test instead. It takes one test at a time; a second client is told it is busy. It talks only to another copy of Floodlight, not to iperf, since the two don't speak the same
 protocol. UDP at `--bitrate 0` sends as fast as the machine can, which floods most links and shows
 up as loss; a rate just under what TCP reached is the useful test. The server's port has to be
 open on its firewall, TCP and UDP both.
