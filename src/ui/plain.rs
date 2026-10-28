@@ -2,6 +2,8 @@
 //! pings, no screen,
 //! so it works in a pipe or a script.
 
+use crate::lanspeed::runs::{self as lanspeed_runs, Event as LanEvent, Settings};
+use crate::lanspeed::wire::{Direction, Report};
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
 use crate::scan::hosts::{Host, Query, Vendor};
@@ -148,6 +150,123 @@ pub fn run_words(run: &Run) -> [String; 6] {
         mbps(run.upload()),
         server,
     ]
+}
+
+/// Prints a row an interval as the data arrives, and each transfer's total as a `#` line.
+pub fn lanspeed(settings: Settings, count: u32, wait: Duration) -> anyhow::Result<()> {
+    println!("# {}", lanspeed_headline(&settings, count));
+    let udp = settings.protocol == crate::lanspeed::wire::Protocol::Udp;
+    let titles = ["interval", "way", "bitrate", "transfer", "jitter", "lost"];
+    let shown = if udp { 6 } else { 4 };
+    println!("{}", lanspeed_line(&titles[..shown]));
+    let runs = lanspeed_runs::finished(settings, count, wait, |event| match event {
+        LanEvent::Interval(direction, report) => {
+            let words = lanspeed_row(*direction, report, false);
+            println!("{}", lanspeed_line(&words));
+        }
+        LanEvent::Total(direction, report) => {
+            println!("# {}", lanspeed_row(*direction, report, true).join(" · "));
+        }
+        LanEvent::Failed(why) => println!("# failed: {why}"),
+        _ => {}
+    });
+    if runs.runs.len() > 1 {
+        println!("# {}", lanspeed_medians(&runs).unwrap_or_default());
+    }
+    Ok(())
+}
+
+/// A row's words in the printed table's columns.
+fn lanspeed_line<S: AsRef<str>>(words: &[S]) -> String {
+    let word = |i: usize| words.get(i).map_or("", AsRef::as_ref);
+    let mut line = format!(
+        "{:<11}  {:<9}  {:>12}  {:>10}",
+        word(0),
+        word(1),
+        word(2),
+        word(3)
+    );
+    if words.len() > 4 {
+        line.push_str(&format!("  {:>8}  {}", word(4), word(5)));
+    }
+    line
+}
+
+/// `lanspeed to 192.168.1.20 · tcp · 10 s · 1 stream`, with the rate for UDP and the runs when
+/// there are several.
+pub fn lanspeed_headline(settings: &Settings, count: u32) -> String {
+    let mut words = format!(
+        "lanspeed to {} · {} · {} s · {} stream{}",
+        settings.host,
+        settings.protocol.name(),
+        settings.seconds.as_secs_f32(),
+        settings.streams,
+        if settings.streams == 1 { "" } else { "s" }
+    );
+    if settings.protocol == crate::lanspeed::wire::Protocol::Udp {
+        match settings.mbps {
+            0.0 => words.push_str(" · as fast as it can"),
+            mbps => words.push_str(&format!(" · {mbps} Mbps")),
+        }
+    }
+    if let [direction] = settings.directions.as_slice() {
+        words.push_str(&format!(" · {} only", direction.name()));
+    }
+    if count > 1 {
+        words.push_str(&format!(" · {count} runs"));
+    }
+    words
+}
+
+/// `median 941.2 Mbps up · 938.0 Mbps down`, once more than one run measured.
+pub fn lanspeed_medians(runs: &lanspeed_runs::Runs) -> Option<String> {
+    use crate::lanspeed::runs::Run;
+    let up = runs.median(Run::upload_mbps);
+    let down = runs.median(Run::download_mbps);
+    if up.is_none() && down.is_none() {
+        return None;
+    }
+    let mut words = Vec::new();
+    if let Some(up) = up {
+        words.push(format!("{up:.1} Mbps up"));
+    }
+    if let Some(down) = down {
+        words.push(format!("{down:.1} Mbps down"));
+    }
+    Some(format!("median {}", words.join(" · ")))
+}
+
+/// An interval's (or a total's) span, direction, bitrate and bytes moved, then for UDP the
+/// jitter and the datagrams lost, as the printed tables write them.
+pub fn lanspeed_row(direction: Direction, report: &Report, total: bool) -> Vec<String> {
+    let span = match total {
+        true => format!("{:.1} s total", report.to),
+        false => format!("{:.1}–{:.1} s", report.from, report.to),
+    };
+    let mut words = vec![
+        span,
+        direction.name().to_string(),
+        format!("{:.1} Mbps", report.mbps()),
+        bytes_words(report.bytes),
+    ];
+    if let Some(datagrams) = report.datagrams {
+        words.push(format!("{:.2} ms", datagrams.jitter_ms));
+        words.push(format!(
+            "{} ({:.1}%)",
+            datagrams.lost,
+            report.loss().unwrap_or_default()
+        ));
+    }
+    words
+}
+
+/// `1.2 GB`, `117.0 MB`, `350 kB`: the bytes moved.
+pub fn bytes_words(bytes: u64) -> String {
+    match bytes {
+        0..1_000_000 => format!("{:.0} kB", bytes as f64 / 1e3),
+        1_000_000..1_000_000_000 => format!("{:.1} MB", bytes as f64 / 1e6),
+        _ => format!("{:.2} GB", bytes as f64 / 1e9),
+    }
 }
 
 /// Prints each ping as it comes back, then each host's totals once the last is in (with `count`

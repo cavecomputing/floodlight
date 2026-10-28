@@ -10,7 +10,8 @@ their channels overlap. `speedtest` measures the internet connection's download,
 and jitter against Cloudflare. `ping` pings up to five hosts (the gateway by default) over and over,
 graphing every round trip and counting the ones lost. `dns` looks a name up like dig, from the
 system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
-registered it. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
+registered it. `lanspeed` measures the throughput between two machines on the LAN, iperf-style:
+`--serve` on one, `--connect` from the other, over TCP or UDP. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
 macOS and Windows: a change for one OS must leave the others working, Linux above all.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words (what a
@@ -133,6 +134,8 @@ cargo run -- ping                      # ping the gateway until you quit (--coun
 cargo run -- ping 1.1.1.1 --count 20 --wait 250 --plain    # twenty pings, 250 ms apart, printed
 cargo run -- dns example.com --type a,mx --server 1.1.1.1    # records, timed, authoritative or not
 cargo run -- dns example.com --whois --report out.pdf        # with who registered it, as a PDF
+cargo run -- lanspeed --serve                                # wait for a client on port 5201, tcp and udp
+cargo run -- lanspeed --connect 192.168.1.20 --udp --bitrate 500 --streams 4 --time 30 --plain
 cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
 cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
 
@@ -242,6 +245,21 @@ under `--plain`, a pipe or `NO_COLOR`. `--whois` asks whois.iana.org for the reg
 the registry for the name (dropping labels from the left until it knows one), and the registrar
 it names, and keeps the fields in `FIELDS` (`dns/whois.rs`).
 
+`lanspeed`: `floodlight lanspeed --serve` listens on one port (5201, iperf's, so the same
+firewall rule serves), TCP and UDP both, takes one test at a time (a second client hears `busy`)
+and prints a line a test; `--connect HOST` runs a test against it: a transfer each way in turn
+(upload, then download; `--upload` or `--download` for one), each for `--time` seconds over
+`--streams` connections (or UDP sockets) at once, the receiving end reporting what arrived every
+`--interval` seconds and a total. The two ends speak their own line protocol (`lanspeed/wire.rs`:
+`hello key=value ...`, `ok token=`, `data token=` on each stream, `interval`/`total` lines back to
+the client, `done`), not iperf's, so it only talks to another copy of this tool. A UDP datagram
+carries a sequence number and the sender's clock, so the receiver counts the ones lost by the gaps
+and the jitter as RTP does (RFC 3550, smoothed by a sixteenth), per stream; `--bitrate` paces the
+sender (0 is unpaced, a flood). The receiving socket's buffer is widened through socket2, since
+the OS's default drops datagrams at a few hundred Mbps. Everything is std sockets and threads,
+timed with `Instant`; `--count` and `--wait` repeat runs like `speedtest`. Checked over loopback
+only, so far.
+
 There is no daemon and no state between runs.
 
 The screen is [ratatui](https://ratatui.rs): every tick (50ms) it drains the sweep's channel into
@@ -251,7 +269,7 @@ and only ever talks to the screen through `Event`s.
 ### Folder layout
 
 The code is split by *what it knows about*. The rule that keeps it organised: **`scan/`, `wifi/`,
-`speedtest/`, `ping/`, `dns/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
+`speedtest/`, `ping/`, `dns/`, `lanspeed/` and `os/` never import ratatui**, so all the logic runs in tests, and `ui/` holds only drawing and
 key wiring.
 
 ```
@@ -290,6 +308,11 @@ src/
     echo.rs              one ICMP echo, timed: the ping socket on Linux and macOS, IcmpSendEcho on Windows
     pings.rs             the pings, a thread a host, --count and --wait, the totals (lost, min,
                          average, max, jitter)
+  lanspeed/              the LAN throughput test, no UI
+    wire.rs              what the two ends say: the hello, the server's answer, the report lines, the datagrams
+    transfer.rs          sending and receiving over TCP streams and UDP sockets, counted an interval at a time
+    server.rs            --serve: listen on one port, take a test at a time, receive and report or send
+    runs.rs              --connect: a run (a transfer each way), the Event enum the screen hears, the medians
   dns/                   DNS lookups and whois, no UI
     servers.rs           which name servers to ask: typed, or the system's (resolv.conf, GetNetworkParams)
     lookup.rs            one question to one server over UDP or TCP, timed; the domain's own server
@@ -304,6 +327,7 @@ src/
     speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
     ping.rs              the ping report: the loss, the summary, a row a host, a chart a host
     dns.rs               the lookup's report: the answer, what authoritative means, the records, the whois
+    lanspeed.rs          the LAN speed report: the throughput each way, a chart a direction, a row a run
   ui/                    everything on screen
     theme.rs             colour roles as ratatui styles: the terminal's own for the screen,
                          Gruvbox light for the printed report
@@ -312,6 +336,7 @@ src/
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
     ping.rs              the ping screen: each host's totals, a row a ping, a graph a host
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
+    lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
     plain.rs             the tables printed to stdout for --plain and --find, and the words in each cell
 ```

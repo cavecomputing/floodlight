@@ -32,9 +32,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "process", "net", "sync"
 # what Cloudflare sets, as a browser and other speed test clients do; uploads were refused without.
 ureq = { version = "3", default-features = false, features = ["rustls", "cookies"] }
 
-[target.'cfg(unix)'.dependencies]
-# The ICMP datagram socket --ping sends through, which needs no root and std can't open. Already
-# built for tokio, so it costs nothing.
+# The ICMP datagram socket `ping` sends through, which needs no root and std can't open (Linux
+# and macOS), and the receive buffer `lanspeed` widens on its UDP sockets, which std can't set
+# either: the OS's default drops datagrams at a few hundred Mbps. Already built for tokio, so it
+# costs nothing.
 socket2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]

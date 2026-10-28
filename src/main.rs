@@ -3,6 +3,7 @@
 
 mod brand;
 mod dns;
+mod lanspeed;
 mod os;
 mod ping;
 mod report;
@@ -77,6 +78,49 @@ enum Mode {
         count: Option<u32>,
         /// Milliseconds between one reply (or a timeout) and the next ping.
         #[arg(long, value_name = "MS", default_value_t = 500)]
+        wait: u64,
+    },
+    /// Test the throughput between two machines on the LAN, iperf-style: this tool serving on
+    /// one, connecting from the other, over TCP or UDP.
+    Lanspeed {
+        /// Wait for a client and serve its tests, until you quit.
+        #[arg(long, conflicts_with = "connect", required_unless_present = "connect")]
+        serve: bool,
+        /// Run the test against the machine serving at this name or address.
+        #[arg(long, value_name = "HOST")]
+        connect: Option<String>,
+        /// The port the server listens on (TCP and UDP both) and the client connects to.
+        #[arg(long, value_name = "PORT", default_value_t = lanspeed::PORT)]
+        port: u16,
+        /// Test over TCP: the throughput the connection reaches. The default.
+        #[arg(long, conflicts_with = "udp")]
+        tcp: bool,
+        /// Test over UDP at --bitrate: the datagrams lost and the jitter besides the throughput.
+        #[arg(long)]
+        udp: bool,
+        /// Only send to the server (both ways in turn by default).
+        #[arg(long, conflicts_with = "download")]
+        upload: bool,
+        /// Only receive from the server.
+        #[arg(long)]
+        download: bool,
+        /// Seconds each transfer runs.
+        #[arg(long, value_name = "SECONDS", default_value_t = 10.0)]
+        time: f32,
+        /// Connections sending at once, 1 to 64, when one won't fill the link.
+        #[arg(long, value_name = "N", default_value_t = 1)]
+        streams: usize,
+        /// Seconds between the rows reporting what arrived.
+        #[arg(long, value_name = "SECONDS", default_value_t = 1.0)]
+        interval: f32,
+        /// UDP: how fast to send, in Mbps, all streams together. 0 sends as fast as it can.
+        #[arg(long, value_name = "MBPS", default_value_t = 10.0)]
+        bitrate: f32,
+        /// How many times to run it.
+        #[arg(long, value_name = "N", default_value_t = 1)]
+        count: u32,
+        /// Seconds between runs.
+        #[arg(long, value_name = "SECONDS", default_value_t = 5)]
         wait: u64,
     },
     /// Look a name up in DNS: its records, their TTLs, how long the answer took, and whether it
@@ -163,6 +207,66 @@ fn main() -> anyhow::Result<()> {
             }
             ui::ping::run(&targets, count, wait)
         }
+        Mode::Lanspeed {
+            serve,
+            connect,
+            port,
+            tcp: _,
+            udp,
+            upload,
+            download,
+            time,
+            streams,
+            interval,
+            bitrate,
+            count,
+            wait,
+        } => {
+            if serve {
+                if args.report.is_some() {
+                    bail!("--serve has nothing to report; --report goes with --connect");
+                }
+                return lanspeed::server::serve(port);
+            }
+            if count == 0 {
+                bail!("--count for lanspeed is how many runs: 1 or more");
+            }
+            if !(1..=64).contains(&streams) {
+                bail!("--streams is 1 to 64");
+            }
+            if !(0.1..=3600.0).contains(&time) || !(0.1..=3600.0).contains(&interval) {
+                bail!("--time and --interval are 0.1 to 3600 seconds");
+            }
+            let host = connect.unwrap_or_default();
+            let settings = lanspeed::runs::Settings {
+                server: lanspeed::runs::resolve(&host, port)?,
+                host,
+                protocol: match udp {
+                    true => lanspeed::wire::Protocol::Udp,
+                    false => lanspeed::wire::Protocol::Tcp,
+                },
+                directions: match (upload, download) {
+                    (true, _) => vec![lanspeed::wire::Direction::Upload],
+                    (_, true) => vec![lanspeed::wire::Direction::Download],
+                    _ => vec![
+                        lanspeed::wire::Direction::Upload,
+                        lanspeed::wire::Direction::Download,
+                    ],
+                },
+                streams,
+                seconds: Duration::from_secs_f32(time),
+                interval: Duration::from_secs_f32(interval),
+                mbps: bitrate,
+            };
+            let wait = Duration::from_secs(wait);
+            if let Some(path) = &args.report {
+                return report::lanspeed::write(path, settings, count, wait);
+            }
+            if args.plain {
+                return ui::plain::lanspeed(settings, count, wait);
+            }
+            ui::lanspeed::run(settings, count, wait)
+        }
         Mode::Dns {
             name,
             types,
@@ -235,5 +339,29 @@ mod tests {
             args.mode,
             Mode::Dns { ref types, whois: true, .. } if types == &["a", "mx"]
         ));
+        let lanspeed = [
+            "lanspeed",
+            "--connect",
+            "192.168.1.20",
+            "--udp",
+            "--streams",
+            "4",
+        ];
+        let args = Args::try_parse_from([brand::BIN].into_iter().chain(lanspeed)).expect("a test");
+        assert!(matches!(
+            args.mode,
+            Mode::Lanspeed {
+                serve: false,
+                udp: true,
+                streams: 4,
+                port: 5201,
+                ..
+            }
+        ));
+        // One end or the other, not neither and not both.
+        assert!(Args::try_parse_from([brand::BIN, "lanspeed"]).is_err());
+        let both = ["lanspeed", "--serve", "--connect", "192.168.1.20"];
+        assert!(Args::try_parse_from([brand::BIN].into_iter().chain(both)).is_err());
+        assert!(Args::try_parse_from([brand::BIN, "lanspeed", "--serve", "--port", "7"]).is_ok());
     }
 }

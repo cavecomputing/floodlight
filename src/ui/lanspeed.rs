@@ -1,0 +1,303 @@
+//! The LAN speed test's screen: a row an interval as the data arrives (the transfer under way in
+//! the active colour), each transfer's total as a row of its own, and a graph a direction of the
+//! intervals along the bottom. Same look as the speed test's screen.
+
+use crate::lanspeed::runs::{self, Event, Run, Runs, Settings};
+use crate::lanspeed::wire::{Direction, Protocol};
+use crate::ui::speedtest::{PLOT_ROWS, graph};
+use crate::ui::status_bar;
+use crate::ui::theme::{Roles, TERMINAL};
+use crate::ui::{INSET, inset, plain};
+use ratatui::crossterm::event::{
+    self as input, Event as Input, KeyCode, KeyEventKind, KeyModifiers,
+};
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
+use ratatui::{DefaultTerminal, Frame};
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
+
+const TICK: Duration = Duration::from_millis(50);
+const PULSE: Duration = Duration::from_millis(600);
+const HINTS: [&str; 2] = ["^r test again", "^c quit"];
+
+pub fn run(settings: Settings, count: u32, wait: Duration) -> anyhow::Result<()> {
+    let mut screen = Screen {
+        events: runs::start(settings.clone(), count, wait),
+        runs: Runs::default(),
+        headline: plain::lanspeed_headline(&settings, count),
+        settings,
+        asked: count,
+        opened: Instant::now(),
+    };
+    let mut terminal = ratatui::init();
+    let outcome = screen.show(&mut terminal, count, wait);
+    ratatui::restore();
+    outcome
+}
+
+struct Screen {
+    events: Receiver<Event>,
+    runs: Runs,
+    headline: String,
+    settings: Settings,
+    /// Runs asked for so far, ^r included.
+    asked: u32,
+    opened: Instant,
+}
+
+impl Screen {
+    fn show(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+        count: u32,
+        wait: Duration,
+    ) -> anyhow::Result<()> {
+        loop {
+            while let Ok(event) = self.events.try_recv() {
+                self.runs.apply(event);
+            }
+            terminal.draw(|frame| self.draw(frame))?;
+            if input::poll(TICK)?
+                && let Input::Key(key) = input::read()?
+                && key.kind != KeyEventKind::Release
+            {
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                match (key.code, ctrl) {
+                    (KeyCode::Char('c'), true) | (KeyCode::Char('q'), true) | (KeyCode::Esc, _) => {
+                        return Ok(());
+                    }
+                    // Another round of the same runs, under the ones already measured.
+                    (KeyCode::Char('r'), true) if self.runs.done => {
+                        self.events = runs::start(self.settings.clone(), count, wait);
+                        self.runs.done = false;
+                        self.asked += count;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        let roles = &TERMINAL;
+        frame.render_widget(
+            Block::new().style(Style::new().bg(roles.bg_surface).fg(roles.fg)),
+            frame.area(),
+        );
+        let directions = self.settings.directions.len() as u16;
+        let [_, head, _, table, graphs, rule, bar] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(if directions > 0 { PLOT_ROWS + 3 } else { 0 }),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas(frame.area());
+
+        let mut headline = self.headline.clone();
+        if self.runs.runs.len() > 1
+            && let Some(medians) = plain::lanspeed_medians(&self.runs)
+        {
+            headline.push_str(&format!(" · {medians}"));
+        }
+        frame.render_widget(
+            Paragraph::new(Span::styled(format!("# {headline}"), roles.comment())),
+            inset(head),
+        );
+        self.draw_table(frame, table, roles);
+
+        let places = Layout::horizontal(vec![Constraint::Fill(1); directions as usize])
+            .spacing(3)
+            .split(inset(graphs));
+        for (direction, place) in self.settings.directions.iter().zip(places.iter()) {
+            let ink = match direction {
+                Direction::Upload => roles.address(),
+                Direction::Download => roles.good(),
+            };
+            graph(
+                frame,
+                *place,
+                &format!("{} · Mbps · an interval a dot", direction.name()),
+                &self.runs.intervals(*direction),
+                ink,
+                roles,
+            );
+        }
+        status_bar::draw(frame, rule, bar, roles, self.state_line(roles), &HINTS);
+    }
+
+    fn state_line(&self, roles: &Roles) -> Line<'static> {
+        let started = self.runs.runs.len();
+        let failed = self
+            .runs
+            .runs
+            .iter()
+            .filter(|run| run.failed.is_some())
+            .count();
+        let (dot, words, tone) = if self.runs.done {
+            let runs = match started {
+                1 => "1 run".to_string(),
+                _ => format!("{started} runs"),
+            };
+            match failed {
+                0 => (roles.good(), format!("done · {runs}"), roles.muted()),
+                _ => {
+                    let why = self
+                        .runs
+                        .runs
+                        .iter()
+                        .rev()
+                        .find_map(|run| run.failed.clone())
+                        .unwrap_or_default();
+                    let words = match started {
+                        1 => format!("failed: {why}"),
+                        _ => format!("done · {failed} of {started} failed: {why}"),
+                    };
+                    (roles.warning(), words, roles.warning())
+                }
+            }
+        } else if let Some(next) = self.runs.next {
+            let seconds = next.saturating_duration_since(Instant::now()).as_secs() + 1;
+            let words = format!("next run in {seconds}s · {started} of {} done", self.asked);
+            (roles.comment(), words, roles.muted())
+        } else {
+            let lit = (self.opened.elapsed().as_millis() / PULSE.as_millis()).is_multiple_of(2);
+            let dot = if lit { roles.active() } else { roles.comment() };
+            let run = self.runs.runs.last();
+            let mut words = match run.and_then(|run| run.phase) {
+                Some(direction) => {
+                    let seconds = run
+                        .map(|run| {
+                            run.intervals
+                                .iter()
+                                .filter(|(way, _)| *way == direction)
+                                .map(|(_, report)| report.to)
+                                .fold(0.0, f32::max)
+                        })
+                        .unwrap_or_default();
+                    format!(
+                        "measuring {} · {seconds:.0} of {} s",
+                        direction.name(),
+                        self.settings.seconds.as_secs_f32()
+                    )
+                }
+                None => "connecting".to_string(),
+            };
+            if self.asked > 1 {
+                words.push_str(&format!(" · run {} of {}", started.max(1), self.asked));
+            }
+            (dot, words, roles.muted())
+        };
+        Line::from(vec![Span::styled("● ", dot), Span::styled(words, tone)])
+    }
+
+    fn draw_table(&self, frame: &mut Frame, area: Rect, roles: &Roles) {
+        let udp = self.settings.protocol == Protocol::Udp;
+        let mut rows: Vec<Row<'static>> = Vec::new();
+        for run in &self.runs.runs {
+            rows.extend(run_rows(run, roles, udp));
+        }
+        // The latest rows, when there are more than fit.
+        let room = area.height.saturating_sub(1) as usize;
+        let skipped = rows.len().saturating_sub(room);
+        let rows = rows.split_off(skipped);
+        let mut titles = vec!["interval", "way", "bitrate", "transfer"];
+        let mut widths = vec![
+            Constraint::Length(12),
+            Constraint::Length(9),
+            Constraint::Length(12),
+            Constraint::Length(10),
+        ];
+        if udp {
+            titles.extend(["jitter", "lost"]);
+            widths.extend([Constraint::Length(9), Constraint::Fill(1)]);
+        } else {
+            widths.pop();
+            widths.push(Constraint::Fill(1));
+        }
+        let header = Row::new(
+            titles
+                .into_iter()
+                .map(|title| Cell::from(Span::styled(title, roles.comment()))),
+        );
+        let table = Table::new(rows, widths).header(header).column_spacing(2);
+        // The rows start two columns in from the `#` that comments out the header, like the
+        // other screens' tables.
+        let rows = Rect {
+            x: area.x + INSET + 2,
+            width: area.width.saturating_sub(INSET + 2),
+            ..area
+        };
+        frame.render_widget(table, rows);
+        if area.height > 0 && area.width > INSET {
+            frame.buffer_mut()[(area.x + INSET, area.y)]
+                .set_char('#')
+                .set_style(roles.comment());
+        }
+    }
+}
+
+/// A run's rows: an interval each, in the order they came, and each transfer's total after its
+/// intervals, in the plain colour so it stands out from them; a failed run ends with why.
+fn run_rows(run: &Run, roles: &Roles, udp: bool) -> Vec<Row<'static>> {
+    let cells = |words: Vec<String>, style: Style| {
+        let mut cells: Vec<Cell> = words
+            .into_iter()
+            .map(|word| Cell::from(Span::styled(word, style)))
+            .collect();
+        if udp {
+            cells.resize(6, Cell::from(""));
+        }
+        Row::new(cells)
+    };
+    let mut rows = Vec::new();
+    let mut shown = Vec::new();
+    let mut last = None;
+    for (direction, report) in &run.intervals {
+        // A transfer's total goes after its intervals, before the next transfer's.
+        if let Some(before) = last
+            && before != *direction
+            && let Some(total) = run.total(before)
+        {
+            shown.push(before);
+            rows.push(cells(
+                plain::lanspeed_row(before, total, true),
+                roles.text(),
+            ));
+        }
+        let style = match run.phase == Some(*direction) {
+            true => roles.active(),
+            false => roles.muted(),
+        };
+        rows.push(cells(plain::lanspeed_row(*direction, report, false), style));
+        last = Some(*direction);
+    }
+    for direction in [Direction::Upload, Direction::Download] {
+        if !shown.contains(&direction)
+            && let Some(total) = run.total(direction)
+        {
+            rows.push(cells(
+                plain::lanspeed_row(direction, total, true),
+                roles.text(),
+            ));
+        }
+    }
+    if let Some(why) = &run.failed {
+        // Why goes in the last column, the one with room.
+        let mut words = vec![run.time.clone(), "failed".to_string()];
+        words.resize(if udp { 5 } else { 3 }, String::new());
+        words.push(why.clone());
+        let mut cells: Vec<Cell> = words
+            .into_iter()
+            .map(|word| Cell::from(Span::styled(word, roles.warning())))
+            .collect();
+        cells[0] = Cell::from(Span::styled(run.time.clone(), roles.comment()));
+        rows.push(Row::new(cells));
+    }
+    rows
+}

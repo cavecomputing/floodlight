@@ -1,8 +1,9 @@
 //! Everything on screen: the sweep's search screen (ratatui), the wireless screen, the speed
-//! test's and the ping screens, and the plain tables.
+//! test's, the ping and the LAN speed test's screens, and the plain tables.
 
 pub mod app;
 pub mod dns;
+pub mod lanspeed;
 pub mod ping;
 pub mod plain;
 pub mod speedtest;

@@ -13,7 +13,9 @@ turns up by the MAC on its label. And it lists the WiFi networks around you and 
 crowd each other, so you can pick the quietest one. And it tests the internet connection's
 download, upload, latency and jitter against Cloudflare. And it pings up to five hosts over and over,
 graphing every round trip and counting the ones lost. And it looks names up in DNS, saying which
-server answered, how fast and whether authoritatively, and who registered the domain.
+server answered, how fast and whether authoritatively, and who registered the domain. And it
+measures the throughput between two machines on the LAN, iperf-style, one serving and one
+connecting, over TCP or UDP.
 
 Each feature is a mode, typed as a word: `floodlight ping`, `floodlight speedtest`. `floodlight`
 on its own lists the modes and the options they share; `floodlight <mode> --help` shows that
@@ -26,6 +28,7 @@ mode's own options.
 | [`speedtest`](#speedtest) | download, upload, latency and jitter, once or `--count` times |
 | [`ping`](#ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
 | [`dns`](#dns) | a name's records from the system's name server or any other, timed, authoritative or not, and its whois |
+| [`lanspeed`](#lanspeed) | the throughput between this machine and another on the LAN, iperf-style, over TCP or UDP |
 
 | Shared option | What it does |
 |---|---|
@@ -224,9 +227,50 @@ floodlight dns example.com --whois --report dns.pdf     # write it as a PDF repo
 .com and .net the registrar it points to, then shows the fields worth reading. Whois runs over TCP
 port 43, which some networks block.
 
+## lanspeed
+
+Measures the throughput between two machines on the LAN, the way iperf does: run it with
+`--serve` on one machine, then `--connect` to that machine from the other. Each run sends to the
+server for 10 seconds, then receives from it for 10, and the receiving end counts what actually
+arrived, reporting a row a second as it goes and a total a direction. Over TCP that is the
+throughput the connection reaches. Over UDP it sends at a set rate (`--bitrate`, 10 Mbps unless
+told) and also counts the datagrams lost on the way and the jitter (how much one datagram's
+transit differs from the one before), so a link that drops under load shows as loss rather than
+as TCP quietly slowing down.
+
+```
+  # lanspeed to 192.168.1.20 · tcp · 10 s · 4 streams
+
+  # interval      way        bitrate       transfer
+    0.0–1.0 s     upload     938.2 Mbps    117.3 MB
+    1.0–2.0 s     upload     941.0 Mbps    117.6 MB
+    ...
+    10.0 s total  upload     939.8 Mbps    1.17 GB
+    0.0–1.0 s     download   936.4 Mbps    117.1 MB
+```
+
+```bash
+floodlight lanspeed --serve                              # on one machine: wait for a client, until you quit
+floodlight lanspeed --connect 192.168.1.20               # on the other: the screen, one run; ^r runs it again
+floodlight lanspeed --connect 192.168.1.20 --udp --bitrate 500    # UDP at 500 Mbps: loss and jitter too
+floodlight lanspeed --connect 192.168.1.20 --streams 4   # four connections at once, when one won't fill the link
+floodlight lanspeed --connect 192.168.1.20 --time 30 --interval 5    # 30 s each way, a row every 5 s
+floodlight lanspeed --connect 192.168.1.20 --download    # one way only (--upload is the other)
+floodlight lanspeed --connect 192.168.1.20 --count 3 --wait 60       # three runs, a minute apart
+floodlight lanspeed --serve --port 5300                  # another port (5201, iperf's, by default; same on both ends)
+floodlight lanspeed --connect 192.168.1.20 --plain       # print each row as it arrives
+floodlight lanspeed --connect 192.168.1.20 --report lan.pdf    # write it as a PDF report
+```
+
+The server prints a line a test and takes one at a time; a second client is told it is busy. It
+talks only to another copy of Floodlight, not to iperf, since the two don't speak the same
+protocol. UDP at `--bitrate 0` sends as fast as the machine can, which floods most links and shows
+up as loss; a rate just under what TCP reached is the useful test. The server's port has to be
+open on its firewall, TCP and UDP both.
+
 ## --report
 
-Add `--report FILE` to `sweep`, `wireless`, `speedtest`, `ping` or `dns` to run it, write it to `FILE` as
+Add `--report FILE` to `sweep`, `wireless`, `speedtest`, `ping`, `dns` or `lanspeed` to run it, write it to `FILE` as
 a PDF, and exit. The report is a Letter page or more, laid out to hand to a client or a manager:
 a header with the date and the key numbers, a summary in plain sentences, then the table.
 
@@ -246,6 +290,9 @@ a header with the date and the key numbers, a summary in plain sentences, then t
   and leads with the share lost (and for one host the average, minimum, maximum and jitter), a
   summary that names the pings lost, a table of each host's totals when there are several, and a
   chart of each host's round trips. Every ping is in the charts, so there is no table of them.
+- The LAN speed report leads with the throughput each way (the median across runs), the jitter
+  and loss for UDP, a summary of what the link carried, a chart a direction (of each interval for
+  one run, of each run's total for several), and every run in a table.
 - The DNS report leads with the name, the server and how the answer went, says what an
   authoritative or non-authoritative answer means, then has a table of records for each lookup and
   the whois fields when asked for.
