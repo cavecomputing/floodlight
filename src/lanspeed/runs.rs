@@ -272,16 +272,9 @@ fn transfer(settings: &Settings, direction: Direction, tx: &Sender<Event>) -> Re
                 streams.push(stream);
             }
             match direction {
-                Direction::Upload => {
-                    // The server counts what arrives and reports it back on the control
-                    // connection while this end sends.
-                    let reports = std::thread::scope(|scope| {
-                        let reports = scope.spawn(|| control.reports(report));
-                        transfer::send_tcp(streams, settings.seconds)?;
-                        reports.join().map_err(|_| "the reports' thread died")?
-                    })?;
-                    reports.ok_or("the server never said what arrived")?
-                }
+                Direction::Upload => uploaded(&mut control, &report, || {
+                    transfer::send_tcp(streams, settings.seconds)
+                })?,
                 Direction::Download => {
                     let total = transfer::receive_tcp(streams, settings.interval, report)?;
                     control.reports(|_| {})?;
@@ -305,12 +298,9 @@ fn transfer(settings: &Settings, direction: Direction, tx: &Sender<Event>) -> Re
                         .into_iter()
                         .map(|socket| (socket, settings.server))
                         .collect();
-                    let reports = std::thread::scope(|scope| {
-                        let reports = scope.spawn(|| control.reports(report));
-                        transfer::send_udp(sockets, settings.seconds, settings.mbps)?;
-                        reports.join().map_err(|_| "the reports' thread died")?
-                    })?;
-                    reports.ok_or("the server never said what arrived")?
+                    uploaded(&mut control, &report, || {
+                        transfer::send_udp(sockets, settings.seconds, settings.mbps)
+                    })?
                 }
                 Direction::Download => {
                     let total = transfer::receive_udp(
@@ -328,6 +318,21 @@ fn transfer(settings: &Settings, direction: Direction, tx: &Sender<Event>) -> Re
     };
     let _ = tx.send(Event::Total(direction, total));
     Ok(())
+}
+
+/// Sends with `send` while the server counts what arrives and reports it back on the control
+/// connection, handing each interval on, and gives back the server's total.
+fn uploaded(
+    control: &mut Lines,
+    report: &(dyn Fn(&Report) + Sync),
+    send: impl FnOnce() -> Result<u64, String>,
+) -> Result<Report, String> {
+    let total = std::thread::scope(|scope| {
+        let reports = scope.spawn(|| control.reports(report));
+        send()?;
+        reports.join().map_err(|_| "the reports' thread died")?
+    })?;
+    total.ok_or("the server never said what arrived".to_string())
 }
 
 /// The server's address from the host typed (a name or an address) and the port.
