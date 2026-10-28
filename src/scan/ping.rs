@@ -17,7 +17,7 @@ pub async fn probe(ip: Ipv4Addr, wait: Duration) -> Option<f32> {
         // page, so there is no reading it everywhere. Its ping call, which the ping mode uses, answers
         // in numbers.
         let echo = tokio::task::spawn_blocking(move || Pinger::new()?.echo(ip, 0, wait));
-        return Some(echo.await.ok()?.ok()?.as_secs_f32() * 1000.0);
+        return Some(echo.await.ok()?.ok()?.took.as_secs_f32() * 1000.0);
     }
     let millis = wait.as_millis().to_string();
     let seconds = wait.as_secs_f32().ceil().max(1.0).to_string();

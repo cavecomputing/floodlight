@@ -632,6 +632,7 @@ dependencies = [
  "hickory-proto",
  "if-addrs",
  "ipnet",
+ "libc",
  "ratatui",
  "regex",
  "socket2",

@@ -85,7 +85,7 @@ pub fn start(ips: &[Ipv4Addr], count: u32, wait: Duration) -> Result<Receiver<Pi
                 let time = chrono::Local::now().format("%H:%M:%S").to_string();
                 let reply = pinger
                     .echo(ip, seq as u16, TIMEOUT)
-                    .map(|took| took.as_secs_f32() * 1000.0);
+                    .map(|answer| answer.took.as_secs_f32() * 1000.0);
                 let ping = Ping {
                     host,
                     seq,

@@ -1,11 +1,11 @@
-//! The tables printed to stdout for `--plain` and `--find`: the same sweep, survey, speed test or
-//! pings, no screen,
-//! so it works in a pipe or a script.
+//! The tables printed to stdout for `--plain` and `--find`: the same sweep, survey, speed test,
+//! pings or trace, no screen, so it works in a pipe or a script.
 
 use crate::lanspeed::runs::{self as lanspeed_runs, Event as LanEvent, Settings};
 use crate::lanspeed::wire::{Direction, Report};
 use crate::ping::pings::{self, Ping, Pings};
 use crate::ping::target::Target;
+use crate::ping::trace::{self, Hop, Trace};
 use crate::scan::hosts::{Host, Query, Vendor};
 use crate::scan::subnet::Subnet;
 use crate::scan::sweep;
@@ -364,4 +364,94 @@ pub fn ping_totals(pings: &Pings) -> String {
         }
     }
     words
+}
+
+/// Traces `count` rounds, then prints a row a hop on the way.
+pub fn trace(target: &Target, count: u32, wait: Duration) -> anyhow::Result<()> {
+    println!("# {}", trace_headline(target, count, wait));
+    let trace = trace::finished(target.ip, count, wait).map_err(anyhow::Error::msg)?;
+    println!("# {}", trace_verdict(&trace));
+    let titles = TRACE_TITLES.map(String::from);
+    println!("{}", trace_line(&titles));
+    for (at, hop) in trace.path().iter().enumerate() {
+        println!("{}", trace_line(&trace_words(at, hop)));
+    }
+    Ok(())
+}
+
+pub const TRACE_TITLES: [&str; 8] = [
+    "hop", "address", "name", "loss", "last", "min", "avg", "max",
+];
+
+fn trace_line(words: &[String; 8]) -> String {
+    let [hop, address, name, loss, last, min, average, max] = words;
+    format!(
+        "{hop:>3}  {address:<19}  {name:<36}  {loss:>6}  {last:>9}  {min:>9}  {average:>9}  {max:>9}"
+    )
+}
+
+/// `trace example.com (192.0.2.7) · 10 rounds · 1000 ms apart`
+pub fn trace_headline(target: &Target, count: u32, wait: Duration) -> String {
+    let rounds = match count {
+        0 => "until stopped".to_string(),
+        1 => "1 round".to_string(),
+        count => format!("{count} rounds"),
+    };
+    format!(
+        "trace {} · {rounds} · {} ms apart",
+        target.label(),
+        wait.as_millis()
+    )
+}
+
+/// What the trace has found so far: how far it got, and where the loss starts.
+pub fn trace_verdict(trace: &Trace) -> String {
+    let hops = trace.path().len();
+    if !trace.reached() {
+        return match hops {
+            0 => "nothing has answered yet".to_string(),
+            _ => format!("{} hasn't answered · last heard at hop {hops}", trace.ip),
+        };
+    }
+    let plural = if hops == 1 { "" } else { "s" };
+    match (trace.loss_starts(), trace.path().last()) {
+        (Some(at), Some(host)) => format!(
+            "reached in {hops} hop{plural} · loss starts at hop {at} · {:.1}% lost at the host",
+            host.pings.loss()
+        ),
+        _ => format!("reached in {hops} hop{plural} · no loss reaches the host"),
+    }
+}
+
+/// A hop's number, router (`+1` for each other one heard there), its name, the share lost, and
+/// its last, quickest, average and slowest round trips, as the printed tables write them.
+pub fn trace_words(at: usize, hop: &Hop) -> [String; 8] {
+    let (address, name) = match hop.routers.as_slice() {
+        // Its first echo not back yet, while the host already answered a further one.
+        [] if hop.pings.pings.is_empty() => ("waiting".to_string(), String::new()),
+        [] => ("no reply".to_string(), String::new()),
+        [(router, name), others @ ..] => {
+            let more = match others.len() {
+                0 => String::new(),
+                more => format!(" +{more}"),
+            };
+            let name = name.clone().unwrap_or_else(|| "—".to_string());
+            (format!("{router}{more}"), name)
+        }
+    };
+    let last = match hop.pings.pings.last().map(|ping| &ping.reply) {
+        Some(Ok(took)) => ms(Some(*took)),
+        Some(Err(why)) => why.clone(),
+        None => "—".to_string(),
+    };
+    [
+        (at + 1).to_string(),
+        address,
+        name,
+        format!("{:.1}%", hop.pings.loss()),
+        last,
+        ms(hop.pings.min()),
+        ms(hop.pings.average()),
+        ms(hop.pings.max()),
+    ]
 }

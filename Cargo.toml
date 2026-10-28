@@ -38,6 +38,11 @@ ureq = { version = "3", default-features = false, features = ["rustls", "cookies
 # costs nothing.
 socket2 = "0.6"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux's error queue, where `trace` hears the router a hop's echo ran out at, which neither std
+# nor socket2 can read. Already built for tokio and socket2, so it costs nothing.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 # Windows' own wifi service (wlanapi): ask it to scan and read what it heard, which netsh can't.
 # Its ping call and route table (iphlpapi) for --ping: no Administrator needed, unlike a socket.

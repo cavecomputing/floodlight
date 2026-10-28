@@ -27,6 +27,7 @@ mode's own options.
 | [`wireless`](#wireless) | the WiFi networks heard, their channels and how they overlap |
 | [`speedtest`](#speedtest) | download, upload, latency and jitter, once or `--count` times |
 | [`ping`](#ping) | up to five hosts pinged over and over: every round trip, the ones lost, min, average, max and jitter |
+| [`trace`](#trace) | the route to a host, hop by hop, round after round: each router's round trips and the share lost, and where loss starts |
 | [`dns`](#dns) | a name's records from the system's name server or any other, timed, authoritative or not, and its whois |
 | [`lanspeed`](#lanspeed) | the throughput between this machine and another on the LAN, iperf-style, over TCP or UDP |
 
@@ -193,6 +194,38 @@ millisecond on every OS (Windows' own `ping` only counts whole ones). IPv4 only 
 No root and no Administrator: it uses the ping socket Linux and macOS give ordinary programs and
 Windows' own ping call. Most Linux systems allow that socket out of the box (systemd turns it on);
 if yours doesn't, Floodlight says so and gives the one `sysctl` line that allows it.
+
+## trace
+
+Traces the route to a host, the way `traceroute`, `tracert` and `mtr` do: an echo to every hop on
+the way, each set to run out (its TTL) at that hop so the router there answers, then again every
+second until you quit. Each hop gets a row with its router, the router's name when it has one,
+the share of echoes lost and the last, quickest, average and slowest round trip.
+
+```
+  # trace example.com (192.0.2.7) · until stopped · 1000 ms apart
+  # reached in 3 hops · loss starts at hop 3 · 20.0% lost at the host
+
+  # hop  address              name                 loss    last       min        avg        max
+    1    192.168.1.1          router.lan           0.0%    0.6 ms     0.4 ms     0.6 ms     1.1 ms
+    2    192.168.2.2          —                    0.0%    9.8 ms     8.9 ms     9.6 ms     12.0 ms
+    3    192.0.2.7            example.com          20.0%   timed out  10.1 ms    10.7 ms    13.2 ms
+```
+
+```bash
+floodlight trace 1.1.1.1                       # until you quit; ^r starts over
+floodlight trace example.com --count 30        # thirty rounds, then stop (0 means until you quit)
+floodlight trace 1.1.1.1 --wait 2000           # two seconds between rounds (1000 ms by default)
+floodlight trace 1.1.1.1 --plain               # ten rounds, then the hops printed (--count for more)
+floodlight trace 1.1.1.1 --report trace.pdf    # ten rounds written as a PDF report
+```
+
+Where loss starts is the first of the hops that all lose echoes from there to the host. A router
+that loses some when the hops after it don't is only slow to answer for itself (routers answer
+traffic for others first, and limit how often they answer for themselves), so it isn't traffic
+lost and doesn't count. That limit is why `--wait` is a second by default: much faster, and every
+router seems to lose echoes. A hop where nothing answered shows `no reply`; many routers never
+answer. IPv4 only for now, and no root or Administrator, the same way as `ping`.
 
 ## dns
 

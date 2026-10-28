@@ -8,7 +8,8 @@ that filters the rows as you type, so a camera or switch you just plugged in is 
 on its label (or the other way round). `wireless` lists the WiFi networks in earshot and how
 their channels overlap. `speedtest` measures the internet connection's download, upload, latency
 and jitter against Cloudflare. `ping` pings up to five hosts (the gateway by default) over and over,
-graphing every round trip and counting the ones lost. `dns` looks a name up like dig, from the
+graphing every round trip and counting the ones lost. `trace` traces the route to a host hop by hop, round after round, each hop's
+round trips and losses, so where loss starts shows. `dns` looks a name up like dig, from the
 system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
 registered it. `lanspeed` measures the throughput between two machines on the LAN, iperf-style:
 `--serve` on one, `--connect` from the other, over TCP or UDP. Linux (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on
@@ -132,6 +133,7 @@ cargo run -- speedtest                 # download, upload, latency and jitter ag
 cargo run -- speedtest --count 3 --wait 10 --plain    # three runs, 10 s apart, printed
 cargo run -- ping                      # ping the gateway until you quit (--count 0, the default)
 cargo run -- ping 1.1.1.1 --count 20 --wait 250 --plain    # twenty pings, 250 ms apart, printed
+cargo run -- trace 1.1.1.1 --count 10 --plain                # ten rounds to every hop, then the hops
 cargo run -- dns example.com --type a,mx --server 1.1.1.1    # records, timed, authoritative or not
 cargo run -- dns example.com --whois --report out.pdf        # with who registered it, as a PDF
 cargo run -- lanspeed --serve                                # wait for a client on port 5201, tcp and udp
@@ -234,6 +236,17 @@ timed with `Instant` around the send and the reply, since Windows only reports w
 milliseconds. Ctrl+R forgets the pings and starts over. The screen and the report give each host
 a graph of its own (three to a row on screen); the report has no table of every ping.
 
+`trace HOST`: a thread a hop, TTL 1 to 30, each with its own ping socket (`Pinger::set_ttl`),
+sending an echo a round, `--wait` ms (1000 by default; routers rate-limit their own answers)
+after the last answer or timeout, `--count` rounds (0, until quit, on screen; 10 for `--plain`
+and `--report`). The router where the TTL runs out answers with a time exceeded: Linux puts it on
+the socket's error queue (IP_RECVERR, read with `recvmsg` through libc), macOS hands it over as
+a packet quoting our echo, Windows' `IcmpSendEcho` returns `IP_TTL_EXPIRED_TRANSIT` with the
+router's address. Threads past the first TTL the host answered at stop. Each hop's answers are a
+`Pings`, so loss and times come from ping's own sums; loss "starts" at the first of the last run
+of hops that all lost some (a router losing only its own answers doesn't count). Router names are
+looked up on threads of their own and arrive as `Event::Name`.
+
 `dns NAME`: asks for the `--type`s (A, or PTR for an address, by default) from each `--server`
 (the first one in `/etc/resolv.conf` on Linux and macOS, `GetNetworkParams` on Windows), one
 question at a time over UDP, or TCP with `--tcp` or when the UDP answer comes back truncated. The
@@ -303,11 +316,13 @@ src/
     cloudflare.rs        speed.cloudflare.com through ureq: the transfers and their timings, the data center
     runs.rs              the runs: the sizes, the Event enum the screen hears, latency, jitter and
                          the 90th percentile speeds
-  ping/                  pinging up to five hosts, no UI
+  ping/                  pinging up to five hosts, and tracing the route to one, no UI
     target.rs            what to ping: the name or address typed, or the gateway from the route table
-    echo.rs              one ICMP echo, timed: the ping socket on Linux and macOS, IcmpSendEcho on Windows
+    echo.rs              one ICMP echo, timed, with a TTL when asked: the ping socket on Linux and
+                         macOS (Linux's error queue for a router's answer), IcmpSendEcho on Windows
     pings.rs             the pings, a thread a host, --count and --wait, the totals (lost, min,
                          average, max, jitter)
+    trace.rs             the trace: a thread a hop, the routers heard, the path, where loss starts
   lanspeed/              the LAN throughput test, no UI
     wire.rs              what the two ends say: the hello, the server's answer, the report lines, the datagrams
     transfer.rs          sending and receiving over TCP streams and UDP sockets, counted an interval at a time
@@ -326,6 +341,8 @@ src/
     wireless.rs          the survey's report: the summary, a channel chart per band, the networks
     speedtest.rs         the speed test's report: the medians, the summary, a chart a result, a row a run
     ping.rs              the ping report: the loss, the summary, a row a host, a chart a host
+    trace.rs             the trace report: how far and where loss starts, a row a hop, loss and
+                         latency charts by hop
     dns.rs               the lookup's report: the answer, what authoritative means, the records, the whois
     lanspeed.rs          the LAN speed report: the throughput each way, a chart a direction, a row a run
   ui/                    everything on screen
@@ -335,6 +352,7 @@ src/
     wireless.rs          the wireless screen: the networks, their trends, crowds and strips
     speedtest.rs         the speed test screen: a row a run, the result being measured in yellow, graphs of the runs
     ping.rs              the ping screen: each host's totals, a row a ping, a graph a host
+    trace.rs             the trace screen: how far and where loss starts, a row a hop
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     lanspeed.rs          the LAN speed screen: a row an interval, a total a direction, a graph a direction
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right
@@ -372,7 +390,7 @@ at the bottom of the file they test.
 - **Startup is near-instant and the screen never waits for the network.** The first frame draws
   before anything has answered; rows fill in. The maker registry is parsed inside the sweep task,
   not on the screen's thread. Dropping the sweep's receiver (Ctrl+R) ends the old sweep quietly.
-- **No privileges.** `ping` uses the unprivileged ICMP datagram socket (Linux, macOS) and
+- **No privileges.** `ping` and `trace` use the unprivileged ICMP datagram socket (Linux, macOS) and
   `IcmpSendEcho` (Windows), never a raw socket. Hosts are found with the system `ping` (on Windows `IcmpSendEcho`, since `ping.exe`
   prints in the system's language) plus a one-byte UDP datagram to the
   discard port (which makes the OS resolve the MAC even for hosts that ignore pings), and the MACs

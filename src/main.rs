@@ -80,6 +80,20 @@ enum Mode {
         #[arg(long, value_name = "MS", default_value_t = 500)]
         wait: u64,
     },
+    /// Trace the route to a host: every router on the way, its round trips and the share it
+    /// lost, round after round, so you can see where loss starts.
+    Trace {
+        /// The name or IPv4 address to trace the route to.
+        host: String,
+        /// How many rounds (an echo to every hop each). 0, the default, keeps going until you
+        /// quit (10 for --plain and --report, which need an end).
+        #[arg(long, value_name = "N")]
+        count: Option<u32>,
+        /// Milliseconds between one answer (or a timeout) and a hop's next echo. Routers answer
+        /// slowly for themselves when asked faster than about once a second.
+        #[arg(long, value_name = "MS", default_value_t = 1000)]
+        wait: u64,
+    },
     /// Test the throughput between two machines on the LAN, iperf-style: this tool serving on
     /// one, connecting from the other, over TCP or UDP.
     Lanspeed {
@@ -206,6 +220,21 @@ fn main() -> anyhow::Result<()> {
                 return ui::plain::ping(&targets, count, wait);
             }
             ui::ping::run(&targets, count, wait)
+        }
+        Mode::Trace { host, count, wait } => {
+            let target = ping::target::choose(Some(&host))?;
+            let wait = Duration::from_millis(wait);
+            if args.report.is_some() || args.plain {
+                let count = count.unwrap_or(10);
+                if count == 0 {
+                    bail!("--plain and --report need rounds that end: give --count 1 or more");
+                }
+                if let Some(path) = &args.report {
+                    return report::trace::write(path, &target, count, wait);
+                }
+                return ui::plain::trace(&target, count, wait);
+            }
+            ui::trace::run(&target, count.unwrap_or(0), wait)
         }
         Mode::Lanspeed {
             serve,
@@ -339,6 +368,13 @@ mod tests {
             args.mode,
             Mode::Dns { ref types, whois: true, .. } if types == &["a", "mx"]
         ));
+        let trace = ["trace", "192.168.1.1", "--count", "5"];
+        let args = Args::try_parse_from([brand::BIN].into_iter().chain(trace)).expect("a trace");
+        assert!(matches!(
+            args.mode,
+            Mode::Trace { ref host, count: Some(5), wait: 1000 } if host == "192.168.1.1"
+        ));
+        assert!(Args::try_parse_from([brand::BIN, "trace"]).is_err());
         let lanspeed = [
             "lanspeed",
             "--connect",
