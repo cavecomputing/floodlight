@@ -166,8 +166,9 @@ Swift helper with `swiftc` (part of Xcode's command line tools).
 Installing for daily use: `cargo install --path .` puts the binary in `~/.cargo/bin`.
 
 Releasing: set `version` in `Cargo.toml`, commit, then `git tag v0.1.0 && git push origin v0.1.0`.
-`.github/workflows/release.yml` checks the tag matches that version, runs the tests on Windows,
-builds the release binary and publishes a GitHub release with the `.exe` attached. A tag with a
+`.github/workflows/release.yml` runs the tests on Windows and Linux, builds the `.exe` and a
+static Linux binary (x86_64 musl, so any distro runs it, in a `.tar.gz`), checks the tag matches
+that version and publishes a GitHub release with both attached. A tag with a
 suffix (`v0.2.0-rc.1`) becomes a pre-release.
 
 ### How much verification a change needs
