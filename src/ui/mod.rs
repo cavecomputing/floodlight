@@ -1,6 +1,6 @@
 //! Everything on screen: the sweep's search screen (ratatui), the wireless screen, the speed
-//! test's, the ping, trace and LAN speed test's screens, the plain tables, and the lines `dns`
-//! and `calc` print and leave in the terminal.
+//! test's, the ping, trace and LAN speed test's screens, the plain tables, and the lines `dns`,
+//! `calc` and `wanip` print and leave in the terminal.
 
 pub mod app;
 pub mod calc;
@@ -13,6 +13,7 @@ pub mod speedtest;
 pub mod status_bar;
 pub mod theme;
 pub mod trace;
+pub mod wanip;
 pub mod wireless;
 
 use crate::ui::theme::Roles;

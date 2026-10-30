@@ -14,7 +14,8 @@ looks a name up like dig, from the
 system's name server or one typed, saying how fast and whether authoritatively, and `--whois` who
 registered it. `lanspeed` measures the throughput between two machines on the LAN, iperf-style:
 `--serve` on one, `--connect` from the other, over TCP or UDP. `calc` works out a subnet's
-network, broadcast, usable range and masks. `wake` sends a Wake-on-LAN packet to a MAC. Linux
+network, broadcast, usable range and masks. `wanip` prints the network's public address,
+IPv4 and IPv6, with its provider and place. `wake` sends a Wake-on-LAN packet to a MAC. Linux
 (the owner's Omarchy/Hyprland machines) comes first, and it also builds and runs on macOS and
 Windows: a change for one OS must leave the others working, Linux above all.
 
@@ -144,6 +145,7 @@ cargo run -- dns example.com --whois --report out.pdf        # with who register
 cargo run -- lanspeed --serve                                # wait for a client on port 5201, tcp and udp
 cargo run -- lanspeed --connect 192.168.1.20 --udp --bitrate 500 --streams 4 --time 30 --plain
 cargo run -- calc 192.168.1.0 255.255.252.0                 # the subnet worked out, printed (IPv6 too)
+cargo run -- wanip                                          # the public IPv4 and IPv6 addresses, printed
 cargo run -- wake aa:bb:cc:dd:ee:ff --broadcast 192.168.1.255    # the magic packet, one line, exit
 cargo run -- sweep --report out.pdf    # one sweep written as a PDF report, then exit (wireless too)
 cargo run -- wireless --report out.pdf --scan-for 20    # scan 20 s before writing (default 10)
@@ -293,6 +295,13 @@ space), works out the rows in `calc.rs` (u128 sums, so IPv4 and IPv6 share them)
 like `dns` does (`ui/calc.rs`, through `ui::print_lines`). A /31 has both addresses usable and no
 broadcast (RFC 3021). No network, no screen, no report.
 
+`wanip`: asks Cloudflare's `/cdn-cgi/trace` at 1.1.1.1 for the IPv4 address and at
+`[2606:4700:4700::1111]` for the IPv6 one (an address literal, so each family is asked over
+itself), falling back to ipify (`api.ipify.org`, `api6.ipify.org`), and the speed test's `/meta`
+for the provider and the city, all at once, 5 s each. Printed like `calc` (`ui/wanip.rs`); a
+family that didn't answer says `none` and why, and it fails only when neither did. No screen,
+no report.
+
 `wake MAC...`: reads every MAC first (through `normalize_mac`, so any format the sweep reads),
 then broadcasts each its magic packet (six `0xff` bytes, the MAC sixteen times) over UDP to
 `--broadcast` (255.255.255.255 unless told) on `--port` (9), prints a line a MAC and exits.
@@ -359,6 +368,8 @@ src/
     lookup.rs            one question to one server over UDP or TCP, timed; the domain's own server
     whois.rs             whois over port 43: IANA, the registry, the registrar, and the fields worth showing
   calc.rs                the subnet calculator: parsing the prefix or mask, the rows it prints, no UI
+  wanip.rs               the public addresses: Cloudflare's trace or ipify for each family, /meta
+                         for the provider, no UI
   wake.rs                Wake-on-LAN: the magic packet and the broadcast that sends it, no UI
   os/                    the OS outside the network
     clipboard.rs         copying through pbcopy / wl-copy / xclip / xsel / clip
@@ -384,6 +395,7 @@ src/
     trace.rs             the trace screen: how far and where loss starts, a row a hop
     dns.rs               the lookup printed to the terminal: a `#` line a lookup, a row a record, the whois
     calc.rs              the subnet printed to the terminal: a row a value
+    wanip.rs             the public addresses printed to the terminal: a row a value
     lanspeed.rs          the LAN speed screens: the client's (a row an interval, a total a direction, a
                          graph a direction) and the server's (a row a test served, a graph each way)
     status_bar.rs        the bottom bar: state or notice on the left, key hints on the right

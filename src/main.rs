@@ -12,6 +12,7 @@ mod scan;
 mod speedtest;
 mod ui;
 mod wake;
+mod wanip;
 mod wifi;
 
 use anyhow::bail;
@@ -175,6 +176,9 @@ enum Mode {
         /// The mask, when it comes after the address instead of a slash, like 255.255.252.0.
         mask: Option<String>,
     },
+    /// Show the network's public (WAN) address, IPv4 and IPv6, as the internet sees it, with the
+    /// provider and place it comes from.
+    Wanip,
     /// Wake a sleeping machine with a Wake-on-LAN magic packet, broadcast to its MAC address.
     Wake {
         /// The MAC addresses to wake, like aa:bb:cc:dd:ee:ff, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff
@@ -355,6 +359,17 @@ fn main() -> anyhow::Result<()> {
             ui::calc::print(&calc::parse(&typed)?, args.plain);
             Ok(())
         }
+        Mode::Wanip => {
+            if args.report.is_some() {
+                bail!("wanip has nothing to report: it prints the public addresses");
+            }
+            let wan = wanip::find();
+            if let (Err(why), Err(_)) = (&wan.v4, &wan.v6) {
+                bail!("no public address came back: {why}");
+            }
+            ui::wanip::print(&wan, args.plain);
+            Ok(())
+        }
         Mode::Wake {
             macs,
             broadcast,
@@ -475,6 +490,10 @@ mod tests {
         let calc = ["calc", "192.168.1.0", "255.255.252.0"];
         let args = Args::try_parse_from([brand::BIN].into_iter().chain(calc)).expect("a subnet");
         assert!(matches!(args.mode, Mode::Calc { mask: Some(_), .. }));
+        assert!(matches!(
+            Args::try_parse_from([brand::BIN, "wanip", "--plain"]).map(|args| args.mode),
+            Ok(Mode::Wanip)
+        ));
         let named = ["wake", "aa:bb:cc:dd:ee:ff", "--broadcast", "lan"];
         assert!(Args::try_parse_from([brand::BIN].into_iter().chain(named)).is_err());
     }

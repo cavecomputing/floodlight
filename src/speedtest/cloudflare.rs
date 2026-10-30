@@ -95,7 +95,7 @@ pub fn read_city(json: &str, colo: &str) -> Option<String> {
 }
 
 /// A string field's value in a piece of JSON, like `"city":"Los Angeles"`.
-fn field(json: &str, name: &str) -> Option<String> {
+pub fn field(json: &str, name: &str) -> Option<String> {
     Regex::new(&format!(r#""{name}"\s*:\s*"([^"]+)""#))
         .expect("a valid pattern")
         .captures(json)
