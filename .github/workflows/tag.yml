@@ -1,0 +1,43 @@
+# Cuts a release when the version in Cargo.toml changes on main: tags the commit vX.Y.Z (unless
+# that tag exists already) and runs release.yml for it. So a release is: bump `version`, push.
+# release.yml is called directly because a tag pushed with the workflow's own token starts no
+# other workflow.
+name: tag
+
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+
+concurrency: tag # two pushes close together tag one at a time
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushing the tag
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag the version if it is new
+        id: tag
+        run: |
+          tag="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "$tag exists already, nothing to release"
+          else
+            git tag "$tag"
+            git push origin "$tag"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    permissions:
+      contents: write # creating the release and uploading the binaries
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
