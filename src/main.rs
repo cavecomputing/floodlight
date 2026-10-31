@@ -21,9 +21,10 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Looks at the network around this machine. Pick a mode; `<mode> --help` shows that mode's own
-/// options.
-// Each mode is a clap subcommand, so `ping --help` has a page of its own.
+/// Looks at the network around this machine. `<mode> --help` shows its options.
+// Each mode is a clap subcommand, so `ping --help` has a page of its own. Keep every help line
+// within 80 columns (clap doesn't wrap them): a mode's summary to 66 characters, an option's to
+// what its column leaves.
 #[derive(Parser)]
 #[command(name = brand::BIN, version, about, arg_required_else_help = true)]
 #[command(
@@ -35,36 +36,31 @@ use std::time::Duration;
 struct Args {
     #[command(subcommand)]
     mode: Mode,
-    /// Print the table and exit instead of opening the screen.
+    /// Print a table and exit, no screen.
     #[arg(long, global = true)]
     plain: bool,
-    /// Write the result as a PDF report to this file, then exit.
+    /// Write a PDF report to FILE and exit.
     #[arg(long, value_name = "FILE", global = true, conflicts_with = "plain")]
     report: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
 enum Mode {
-    /// Sweep a subnet: every address that answers, with its MAC, maker and name.
+    /// Sweep a subnet: each host's address, MAC, maker and name.
     Sweep {
-        /// The subnet to sweep, like 192.168.1.0/24 (an address alone means its /24).
-        /// Defaults to the one this machine is on.
+        /// Like 192.168.1.0/24. The one this machine is on by default.
         subnet: Option<String>,
-        /// Show only the hosts matching any of these terms (the screen opens with them typed).
-        /// An address, a range (192.168.1.10-20) or a subnet (192.168.1.0/28) matches those
-        /// addresses; anything else matches part of an address, a MAC or its first bytes, a
-        /// maker or a name. Separate them with commas or repeat the option.
+        /// Hosts matching an address, range, MAC, maker or name.
         #[arg(long, alias = "find", value_name = "TERMS")]
         filter: Vec<String>,
     },
-    /// Survey the WiFi here: every network heard, its signal and how the channels overlap.
+    /// The WiFi networks heard here and how their channels overlap.
     Wireless {
-        /// With --report: how many seconds to keep scanning before writing, so weak networks
-        /// that answer late make the report.
+        /// With --report: seconds to scan first.
         #[arg(long, value_name = "SECONDS", default_value_t = 10)]
         scan_for: u64,
     },
-    /// Test the internet connection against Cloudflare: download, upload, latency and jitter.
+    /// Download, upload, latency and jitter against Cloudflare.
     Speedtest {
         /// How many times to run it.
         #[arg(long, value_name = "N", default_value_t = 1)]
@@ -73,53 +69,47 @@ enum Mode {
         #[arg(long, value_name = "SECONDS", default_value_t = 5)]
         wait: u64,
     },
-    /// Ping up to five hosts over and over: every round trip, the ones lost, min, average, max
-    /// and jitter.
+    /// Ping up to five hosts over and over: round trips and loss.
     Ping {
-        /// Up to five names or IPv4 addresses, pinged side by side. The gateway when none is given.
+        /// Up to five names or IPv4 addresses. The gateway by default.
         #[arg(value_name = "HOST", num_args = 0..=5)]
         hosts: Vec<String>,
-        /// How many pings. 0, the default, keeps pinging until you quit (10 for --report, which
-        /// needs an end).
+        /// How many pings. 0 (the default) until you quit.
         #[arg(long, value_name = "N")]
         count: Option<u32>,
-        /// Milliseconds between one reply (or a timeout) and the next ping.
+        /// Milliseconds between pings.
         #[arg(long, value_name = "MS", default_value_t = 500)]
         wait: u64,
     },
-    /// Trace the route to a host: every router on the way, its round trips and the share it
-    /// lost, round after round, so you can see where loss starts.
+    /// Trace the route to a host, round after round: where loss starts.
     Trace {
-        /// The name or IPv4 address to trace the route to.
+        /// The name or IPv4 address to trace.
         host: String,
-        /// How many rounds (an echo to every hop each). 0, the default, keeps going until you
-        /// quit (10 for --plain and --report, which need an end).
+        /// How many rounds. 0 (the default) until you quit.
         #[arg(long, value_name = "N")]
         count: Option<u32>,
-        /// Milliseconds between one answer (or a timeout) and a hop's next echo. Routers answer
-        /// slowly for themselves when asked faster than about once a second.
+        /// Milliseconds between a hop's echoes.
         #[arg(long, value_name = "MS", default_value_t = 1000)]
         wait: u64,
     },
-    /// Test the throughput between two machines on the LAN, iperf-style: this tool serving on
-    /// one, connecting from the other, over TCP or UDP.
+    /// Throughput between two machines on the LAN, iperf-style.
     Lanspeed {
-        /// Wait for a client and serve its tests, until you quit.
+        /// Serve tests for clients until you quit.
         #[arg(long, conflicts_with = "connect", required_unless_present = "connect")]
         serve: bool,
-        /// Run the test against the machine serving at this name or address.
+        /// Test against a machine running --serve.
         #[arg(long, value_name = "HOST")]
         connect: Option<String>,
-        /// The port the server listens on (TCP and UDP both) and the client connects to.
+        /// The port to serve or connect to.
         #[arg(long, value_name = "PORT", default_value_t = lanspeed::PORT)]
         port: u16,
-        /// Test over TCP: the throughput the connection reaches. The default.
+        /// Test over TCP (the default).
         #[arg(long, conflicts_with = "udp")]
         tcp: bool,
-        /// Test over UDP at --bitrate: the datagrams lost and the jitter besides the throughput.
+        /// Test over UDP: loss and jitter too.
         #[arg(long)]
         udp: bool,
-        /// Only send to the server (both ways in turn by default).
+        /// Only send to the server.
         #[arg(long, conflicts_with = "download")]
         upload: bool,
         /// Only receive from the server.
@@ -128,13 +118,13 @@ enum Mode {
         /// Seconds each transfer runs.
         #[arg(long, value_name = "SECONDS", default_value_t = 10.0)]
         time: f32,
-        /// Connections sending at once, 1 to 64, when one won't fill the link.
+        /// Connections at once, 1 to 64.
         #[arg(long, value_name = "N", default_value_t = 1)]
         streams: usize,
-        /// Seconds between the rows reporting what arrived.
+        /// Seconds between rows.
         #[arg(long, value_name = "SECONDS", default_value_t = 1.0)]
         interval: f32,
-        /// UDP: how fast to send, in Mbps, all streams together. 0 sends as fast as it can.
+        /// UDP send rate, all streams. 0 floods.
         #[arg(long, value_name = "MBPS", default_value_t = 10.0)]
         bitrate: f32,
         /// How many times to run it.
@@ -144,52 +134,44 @@ enum Mode {
         #[arg(long, value_name = "SECONDS", default_value_t = 5)]
         wait: u64,
     },
-    /// Look a name up in DNS: its records, their TTLs, how long the answer took, and whether it
-    /// came from the domain's own name server. An address is looked up for its name.
+    /// Look up a name's DNS records, timed, authoritative or not.
     Dns {
-        /// The name to look up, like example.com, or an address for its name (a reverse lookup).
+        /// A name like example.com, or an address for its name.
         name: String,
-        /// The record types to ask for, like a, aaaa, mx, txt, ns, cname, soa, srv, caa or any;
-        /// several with commas. A by default, or PTR for an address.
+        /// Record types like a, aaaa, mx, txt or any. A by default.
         #[arg(long = "type", value_name = "TYPE", value_delimiter = ',')]
         types: Vec<String>,
-        /// The name servers to ask, by address (a port after a colon) or name; several with
-        /// commas, each asked in turn. The one this machine uses by default.
+        /// Name servers to ask. The system's by default.
         #[arg(long, value_name = "SERVER", value_delimiter = ',')]
         server: Vec<String>,
-        /// Ask the domain's own name server (found through the usual one) for an authoritative
-        /// answer, past any cache.
+        /// Ask the domain's own name server, past any cache.
         #[arg(long)]
         authoritative: bool,
         /// Ask over TCP instead of UDP.
         #[arg(long)]
         tcp: bool,
-        /// Also ask whois who registered the domain, or who holds the address.
+        /// Also ask whois who registered it.
         #[arg(long)]
         whois: bool,
     },
-    /// Work out a subnet: its network, broadcast, usable range, host count, mask and wildcard.
+    /// Work out a subnet: network, broadcast, usable range and masks.
     Calc {
-        /// The subnet, as an address and a prefix length, like 10.0.4.0/22, 192.168.1.50/24 or
-        /// 2001:db8::/48, or an address and a mask, like 192.168.1.0/255.255.252.0.
+        /// Like 10.0.4.0/22, 192.168.1.0/255.255.252.0 or 2001:db8::/48.
         subnet: String,
-        /// The mask, when it comes after the address instead of a slash, like 255.255.252.0.
+        /// The mask, if not after a slash, like 255.255.252.0.
         mask: Option<String>,
     },
-    /// Show the network's public (WAN) address, IPv4 and IPv6, as the internet sees it, with the
-    /// provider and place it comes from.
+    /// The network's public IPv4 and IPv6 addresses and provider.
     Wanip,
-    /// Wake a sleeping machine with a Wake-on-LAN magic packet, broadcast to its MAC address.
+    /// Wake a machine by its MAC with a Wake-on-LAN magic packet.
     Wake {
-        /// The MAC addresses to wake, like aa:bb:cc:dd:ee:ff, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff
-        /// or aabbccddeeff.
+        /// Like aa:bb:cc:dd:ee:ff, aabb.ccdd.eeff or aabbccddeeff.
         #[arg(value_name = "MAC", required = true)]
         macs: Vec<String>,
-        /// Where to send it: the broadcast address of the machine's subnet, like 192.168.1.255,
-        /// when this machine has several networks, or an address a router forwards from.
+        /// The subnet's broadcast.
         #[arg(long, value_name = "ADDRESS", default_value_t = Ipv4Addr::BROADCAST)]
         broadcast: Ipv4Addr,
-        /// The UDP port to send it to (9, the usual one, or 7 for some cards).
+        /// UDP port, 7 for some cards.
         #[arg(long, value_name = "PORT", default_value_t = wake::PORT)]
         port: u16,
     },
